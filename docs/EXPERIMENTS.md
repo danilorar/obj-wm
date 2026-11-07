@@ -139,3 +139,10 @@ Check (d): the logged ego driven 10% slower along its logged route, agents in `-
 2. Done after the test: `LogPathAgent.eligible` now also requires the ScenarioNet type VEHICLE (no simulation change).
 3. Open: reactive stage 2 (swept ego footprint, merge anticipation); the WM's follower reaction is too weak; coverage
    beyond 16 slots.
+
+## WOMD v3 (branch womd-feasibility, 2026-11-07)
+- Feasibility: `docs/womd_feasibility.md`. Decisions recorded there; `.venv_womd` built in ~/Desktop/wm.
+- Step 0 (follower-event gate, pre-registered in the doc): nuScenes done (15.4 strong events / h).
+  Waiting for Danilo to download WOMD validation files 00000 and 00140–00149 into ~/Desktop/wm/data/womd/validation/.
+- Next: (1) `test-ids` on files 140–149 -> commit `sim/scene_lists/womd_test300.json` + sha256; (2) only then
+  `follower --womd` on file 00000; (3) go / no-go for the full download.

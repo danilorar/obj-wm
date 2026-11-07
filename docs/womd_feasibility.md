@@ -187,3 +187,13 @@ Same code for both datasets (`scripts/womd.py follower`), on a 2 Hz grid (nuScen
   follower also braked hard.
 - Known bias: nuScenes 2 Hz annotations are noisier than WOMD's 10 Hz tracks. This can only inflate the nuScenes
   counts, so it makes the gate harder to pass (conservative).
+
+### Step 0 results so far
+| Dataset | Scenes | Ego-moving h | Brake episodes | With follower | Strong events | R (strong / h) |
+|---|---|---|---|---|---|---|
+| nuScenes official train | 700 | 2.40 | 212 | 72 | 37 | **15.4** |
+| WOMD validation-00000 | waiting for the file | | | | | |
+
+The gate needs R_WOMD ≥ 30.8 / h with ≥ 10 events. Raw output: `outputs/womd_step0/nuscenes_train.json` (local).
+Suspicious, to check: 51% of followed brake episodes also have a hard-braking follower, which may be partly
+nuScenes annotation noise. A base-rate check (how often followers "brake hard" when the ego does not) would show this.
