@@ -28,3 +28,14 @@ Note: these logs and manifests also include test-split metrics, because `train_m
 ## Rule for future runs
 
 Training must not evaluate on the test split. Once the sim agent has added the `--eval-test` flag (off by default), always run without it.
+
+## 2026-11-07: v3b / v3c implemented, NOT trained (waiting for pod approval)
+
+| Branch | Commit | Flag (default off) | Change vs d_rerun |
+|---|---|---|---|
+| v3b-plan-xattn | dea6255 | `--plan-xattn` | decoder cross-attention: each agent's mode queries attend to 12 ego-plan step tokens in that agent's frame (`--plan-queries` kept) |
+| v3c-stand-in-ego | 97b339d | `--stand-in-ego 0.5` | training only: a vehicle with a follower becomes the ego, its logged future = the plan; effective rate ~6% (12.6% of samples qualify) |
+
+Both branch from 60db661 (v3a tip). Checks: `scripts/pod/check_v3_flags_off.py` (flags off identical to d_rerun code;
+v3c `--plot-stand-in` plots + plan-frame check), all pass.
+Needs: pod approval; no v3b/v3c pass criteria recorded yet; branches not pushed.
