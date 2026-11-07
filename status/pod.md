@@ -39,3 +39,14 @@ Training must not evaluate on the test split. Once the sim agent has added the `
 Both branch from 60db661 (v3a tip). Checks: `scripts/pod/check_v3_flags_off.py` (flags off identical to d_rerun code;
 v3c `--plot-stand-in` plots + plan-frame check), all pass.
 Needs: pod approval; no v3b/v3c pass criteria recorded yet; branches not pushed.
+
+## 2026-11-07: v3b / v3c trained (pod RTX 4090, seed 42, no --eval-test)
+
+| Run | Code | Extra flag | Best / stop epoch | Val minADE₆ plan on (off) |
+|---|---|---|---|---|
+| v3b | dea6255 | `--plan-xattn` | 24 / 39 | 1.206 (1.230) |
+| v3c | 97b339d | `--stand-in-ego 1.0` (13.3% stand-in samples) | 24 / 39 | 1.208 (1.233) |
+
+Checkpoints: `~/Desktop/wm/checkpoints/v3b/`, `v3c/` (md5 verified). Logs: `~/Desktop/wm/outputs/pod/train_v3{b,c}_seed42.log`,
+smoke tests in `outputs/pod/smoke_v3/`. Torch 2.8.0+cu128. No test metrics in logs or manifests.
+Not done: follower test / placebo groups (the other two pre-registered criteria); EXPERIMENTS.md rows (owner: sim agent).
