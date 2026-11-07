@@ -184,7 +184,8 @@ def run_v2(args, seed, device, checkpoint):
                         topology=args.topology, scale_inputs=args.scale_inputs,
                         predict_agents=args.predict_agents, ego_plan=args.ego_plan,
                         soft_scores=args.soft_scores, target_split=args.target_split,
-                        plan_queries=args.plan_queries, plan_drop=args.plan_drop).to(device)
+                        plan_queries=args.plan_queries, plan_drop=args.plan_drop,
+                        plan_xattn=args.plan_xattn).to(device)
     plans = (("plan on", True), ("plan off", False)) if args.ego_plan else (("", None),)
 
     def evaluate_all(loader_):
@@ -210,6 +211,7 @@ def run_v2(args, seed, device, checkpoint):
         print(f"Training v2 (assign={args.assign}, topology={args.topology}, scale_inputs={args.scale_inputs}, "
               f"predict_agents={args.predict_agents}, ego_plan={args.ego_plan}, soft_scores={args.soft_scores}, "
               f"target_split={args.target_split}, plan_queries={args.plan_queries}, plan_drop={args.plan_drop}, "
+              f"plan_xattn={args.plan_xattn}, "
               f"anchors={args.anchors}) | {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M params | "
               f"seed={seed} | device={device}", flush=True)
 
@@ -263,7 +265,7 @@ def run_v2(args, seed, device, checkpoint):
         save_run_manifest(
             checkpoint, model="v2", assign=args.assign, topology=args.topology, scale_inputs=args.scale_inputs,
             predict_agents=args.predict_agents, ego_plan=args.ego_plan, plan_drop=args.plan_drop if args.ego_plan else None,
-            plan_queries=args.plan_queries,
+            plan_queries=args.plan_queries, plan_xattn=args.plan_xattn,
             soft_scores=args.soft_scores, target_split=args.target_split, patience_start=args.patience_start,
             train_fraction=args.train_fraction,
             model_class=type(model).__name__, seed=seed, num_modes=6,
@@ -324,6 +326,9 @@ def main():
                         help="v2 --ego-plan: probability of dropping the plan per training sample")
     parser.add_argument("--plan-queries", action="store_true",
                         help="v2 --ego-plan: also add the ego plan (in each agent's own frame) to its decoder queries")
+    parser.add_argument("--plan-xattn", action="store_true",
+                        help="v2 --ego-plan multi-agent (v3b): decoder cross-attention from each agent's mode queries "
+                             "to the ego-plan step tokens in that agent's frame (in addition to --plan-queries)")
     parser.add_argument("--soft-scores", action="store_true",
                         help="v2 only: score loss against softmax(-ADE_k / 1 m) instead of the one-hot winner")
     parser.add_argument("--topology", action="store_true",

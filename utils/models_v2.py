@@ -200,7 +200,7 @@ class DecoderLayer(nn.Module):
     sequence: each query attends to the scene independently, so this equals running every agent on its own
     without copying the scene M times."""
 
-    def __init__(self, d_model=128, heads=8, dropout=0.1):
+    def __init__(self, d_model=128, heads=8, dropout=0.1, plan_xattn=False):
         super().__init__()
         self.norm1 = nn.LayerNorm(d_model)
         self.self_attn = nn.MultiheadAttention(d_model, heads, dropout=dropout, batch_first=True)
@@ -210,14 +210,27 @@ class DecoderLayer(nn.Module):
         self.ffn = nn.Sequential(nn.Linear(d_model, 4 * d_model), nn.GELU(), nn.Dropout(dropout),
                                  nn.Linear(4 * d_model, d_model))
         self.dropout = nn.Dropout(dropout)
+        if plan_xattn:   # created last, so with the flag off the parameters (and their init) are unchanged
+            self.norm_plan = nn.LayerNorm(d_model)
+            self.plan_attn = nn.MultiheadAttention(d_model, heads, dropout=dropout, batch_first=True)
 
-    def forward(self, q, scene, pad):
+    def forward(self, q, scene, pad, plan=None):
+        """plan: None, or (memory (B, M, F, d), key padding (B, M, F) True = masked, on (B,) bool) with the plan
+        steps in each predicted agent's own frame (v3b); the K mode queries of agent m attend to its F plan steps."""
         B, M, K, d = q.shape
         h = self.norm1(q).reshape(B * M, K, d)
         q = q + self.dropout(self.self_attn(h, h, h, need_weights=False)[0]).view(B, M, K, d)
         h = self.norm2(q).reshape(B, M * K, d)
         q = q + self.dropout(self.cross_attn(h, scene, scene, key_padding_mask=pad,
                                              need_weights=False)[0]).view(B, M, K, d)
+        if plan is not None:
+            memory, mask, on = plan
+            h = self.norm_plan(q).reshape(B * M, K, d)
+            # No plan (dropped / off / no valid step): unmask the keys to avoid NaN, then zero the update
+            mask = mask & on[:, None, None]
+            out = self.plan_attn(h, memory.reshape(B * M, -1, d), memory.reshape(B * M, -1, d),
+                                 key_padding_mask=mask.reshape(B * M, -1), need_weights=False)[0]
+            q = q + self.dropout(out).view(B, M, K, d) * on[:, None, None, None]
         return q + self.dropout(self.ffn(self.norm3(q)))
 
 
@@ -226,7 +239,8 @@ class AnchorDecoder(nn.Module):
     Each query outputs a 12-step trajectory (in the agent's own frame) and a score;
     softmax over K gives each agent's mode probabilities (eq. 5.2)."""
 
-    def __init__(self, anchors, d_model=128, heads=8, layers=2, future_steps=12, dropout=0.1, pos_scale=50.0):
+    def __init__(self, anchors, d_model=128, heads=8, layers=2, future_steps=12, dropout=0.1, pos_scale=50.0,
+                 plan_xattn=False):
         super().__init__()
         self.register_buffer("anchors", torch.as_tensor(anchors, dtype=torch.float32))  # (K, 2)
         K = len(anchors)
@@ -234,19 +248,20 @@ class AnchorDecoder(nn.Module):
         self.future_steps = future_steps
         self.anchor_mlp = mlp(2, d_model)
         self.mode_embedding = nn.Embedding(K, d_model)
-        self.layers = nn.ModuleList([DecoderLayer(d_model, heads, dropout) for _ in range(layers)])
+        self.layers = nn.ModuleList([DecoderLayer(d_model, heads, dropout, plan_xattn) for _ in range(layers)])
         self.norm = nn.LayerNorm(d_model)
         self.traj_head = mlp(d_model, future_steps * 2, hidden=d_model)
         self.score_head = mlp(d_model, 1, hidden=d_model)
 
-    def forward(self, scene, pad, agents):
-        """scene (B, N, d), agents (B, M, d) tokens of the predicted agents -> traj (B, M, K, F, 2), logits (B, M, K)."""
+    def forward(self, scene, pad, agents, plan=None):
+        """scene (B, N, d), agents (B, M, d) tokens of the predicted agents -> traj (B, M, K, F, 2), logits (B, M, K).
+        plan: optional ego-plan memory for the plan cross-attention (see DecoderLayer.forward)."""
         B, M = agents.shape[:2]
         K = len(self.anchors)
         q = self.anchor_mlp(self.anchors / self.pos_scale) + self.mode_embedding.weight  # (K, d)
         q = q[None, None] + agents[:, :, None]                                          # (B, M, K, d)
         for layer in self.layers:
-            q = layer(q, scene, pad)
+            q = layer(q, scene, pad, plan)
         q = self.norm(q)
         traj = self.traj_head(q).view(B, M, K, self.future_steps, 2) * self.pos_scale  # predicted in 50 m units
         logits = self.score_head(q).squeeze(-1)
@@ -354,13 +369,18 @@ class V2Predictor(nn.Module):
     target_split=True: multi-agent loss = target loss + mean of the other agents' losses.
     plan_queries=True (needs ego_plan): the ego plan, expressed in each predicted agent's own frame (F x 2,
     in 50 m units, masked by ego_future_valid), goes through an MLP and is added to that agent's decoder
-    queries, so every agent sees where the ego will be relative to itself. Zero when the plan is dropped/off."""
+    queries, so every agent sees where the ego will be relative to itself. Zero when the plan is dropped/off.
+    plan_xattn=True (v3b, needs ego_plan and predict_agents > 1): the plan also becomes F step tokens per predicted
+    agent ([x, y] / 50 m, cos, sin of the plan pose in that agent's own frame -> MLP, + a learned step embedding),
+    and every decoder layer gets a cross-attention from the agent's K mode queries to its F plan tokens
+    (invalid steps masked; no update when the plan is dropped/off)."""
 
     MIN_FUTURE_STEPS = 6  # agents with fewer valid future steps are left out of the loss and the metrics
 
     def __init__(self, anchors, d_model=128, heads=8, encoder_layers=3, decoder_layers=2, dropout=0.1,
                  assign="predicted", topology=False, scale_inputs=False, predict_agents=1,
-                 ego_plan=False, plan_drop=0.5, soft_scores=False, target_split=False, plan_queries=False):
+                 ego_plan=False, plan_drop=0.5, soft_scores=False, target_split=False, plan_queries=False,
+                 plan_xattn=False):
         super().__init__()
         if predict_agents > 1 and assign != "predicted":
             raise ValueError("multi-agent prediction supports assign='predicted' only")
@@ -372,6 +392,9 @@ class V2Predictor(nn.Module):
         if plan_queries and not ego_plan:
             raise ValueError("plan_queries needs ego_plan=True")
         self.plan_queries = plan_queries
+        if plan_xattn and not (ego_plan and predict_agents > 1):
+            raise ValueError("plan_xattn needs ego_plan=True and predict_agents > 1")
+        self.plan_xattn = plan_xattn
         self.pos_scale_plan = 50.0
         self.soft_scores = soft_scores
         self.target_split = target_split
@@ -380,11 +403,14 @@ class V2Predictor(nn.Module):
         self.agent_encoder = AgentEncoder(d_model, pos_scale=pos_scale)
         self.lane_encoder = LaneEncoder(d_model, pos_scale=pos_scale)
         self.scene_encoder = SceneEncoder(d_model, heads, encoder_layers, dropout, topology=topology)
-        self.decoder = AnchorDecoder(anchors, d_model, heads, decoder_layers, dropout=dropout)
+        self.decoder = AnchorDecoder(anchors, d_model, heads, decoder_layers, dropout=dropout, plan_xattn=plan_xattn)
         if ego_plan:
             self.plan_encoder = EgoPlanEncoder(d_model, pos_scale=pos_scale)
         if plan_queries:
             self.plan_query_mlp = mlp(2 * 12, d_model)
+        if plan_xattn:   # created last: with the flag off, parameters and their init are unchanged
+            self.plan_step_mlp = mlp(4, d_model)
+            self.plan_step_embedding = nn.Embedding(12, d_model)
 
     def forward(self, batch, plan=None):
         agent_pose, lane_pose = token_poses(batch)
@@ -414,10 +440,23 @@ class V2Predictor(nn.Module):
             local = to_agent_frames(batch["ego_future"][..., :2], agent_pose[:, self.slots])     # (B, M, F, 2)
             local = local * batch["ego_future_valid"][:, None, :, None] / self.pos_scale_plan
             agents = agents + self.plan_query_mlp(local.flatten(2)) * (~off)[:, None, None]
-        traj, logits = self.decoder(scene, pad, agents)
+        plan_mem = self.plan_memory(batch, agent_pose[:, self.slots], ~off) if self.plan_xattn else None
+        traj, logits = self.decoder(scene, pad, agents, plan_mem)
         if self.predict_agents == 1:
             return traj[:, 0], logits[:, 0]          # target frame = the target's own frame
         return to_target_frame(traj, agent_pose[:, self.slots]), logits
+
+    def plan_memory(self, batch, pose, on):
+        """v3b: plan step tokens in each predicted agent's frame. pose (B, M, 3), on (B,) bool ->
+        (memory (B, M, F, d), key padding (B, M, F) True = masked, on)."""
+        fut, valid = batch["ego_future"], batch["ego_future_valid"]                      # (B, F, 4), (B, F)
+        xy = to_agent_frames(fut[..., :2], pose) / self.pos_scale_plan                   # (B, M, F, 2)
+        dth = torch.atan2(fut[..., 3], fut[..., 2])[:, None] - pose[..., 2:3]            # (B, M, F)
+        feats = torch.cat([xy, torch.cos(dth)[..., None], torch.sin(dth)[..., None]], -1)
+        F_ = fut.shape[1]
+        memory = self.plan_step_mlp(feats) + self.plan_step_embedding.weight[:F_]
+        mask = ~valid[:, None].expand(-1, pose.shape[1], -1)
+        return memory, mask, on
 
     def agent_targets(self, batch):
         """Futures (B, M, F, 2), validity (B, M, F) and the loss/metric mask (B, M) of the predicted agents."""

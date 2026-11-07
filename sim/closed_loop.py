@@ -94,7 +94,8 @@ class WorldModelPredictor:
         m = json.loads(Path(checkpoint).with_suffix(".json").read_text())
         self.model = V2Predictor(state["decoder.anchors"].cpu().numpy(), predict_agents=m["predict_agents"],
                                  ego_plan=True, target_split=m.get("target_split", False),
-                                 plan_queries=m.get("plan_queries", False)).to(device).eval()
+                                 plan_queries=m.get("plan_queries", False),
+                                 plan_xattn=m.get("plan_xattn", False)).to(device).eval()
         self.model.load_state_dict(state)
         self.device, self.cv = device, CVPredictor()
 

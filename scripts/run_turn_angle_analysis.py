@@ -181,7 +181,8 @@ def load_v2(checkpoint, device):
                         predict_agents=manifest.get("predict_agents", 1),
                         ego_plan=manifest.get("ego_plan", False),
                         target_split=manifest.get("target_split", False),
-                        plan_queries=manifest.get("plan_queries", False)).to(device)
+                        plan_queries=manifest.get("plan_queries", False),
+                        plan_xattn=manifest.get("plan_xattn", False)).to(device)
     model.load_state_dict(state, strict=True)
     return model.eval()
 

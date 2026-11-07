@@ -282,7 +282,8 @@ def match(scene_name, checkpoint, sample_limit):
     manifest = json.loads(Path(checkpoint).with_suffix(".json").read_text())
     model = V2Predictor(state["decoder.anchors"].numpy(), predict_agents=manifest.get("predict_agents", 1),
                         ego_plan=manifest.get("ego_plan", False), target_split=manifest.get("target_split", False),
-                        plan_queries=manifest.get("plan_queries", False)).eval()
+                        plan_queries=manifest.get("plan_queries", False),
+                        plan_xattn=manifest.get("plan_xattn", False)).eval()
     model.load_state_dict(state)
     ds = TrajectoryDatasetV2.__new__(TrajectoryDatasetV2)
     ds.samples, ds.max_agents, ds.max_lanes, ds.max_points = data, 64, 192, 21
