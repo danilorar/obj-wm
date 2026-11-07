@@ -28,7 +28,9 @@ Checkpoints: `checkpoints/<run>/v2_seed<N>_best.pth` + `.json`; logs: `outputs/t
 | **Model selection** | 2026-11-06 | Val, rule pre-stated (Amendment 1 (2)) | `train_model.py --evaluate-only --eval-slots 16` | – | – | **d_rerun chosen**: best val moving-agent top-1 ADE (2.462 vs e32 2.520, e63 2.606); all pass the follower direction check |
 | v2_d_seed123 | 2026-11-07 (pod) | (d) rerun, seed 123 | d_rerun flags + `--seed 123` (no `--eval-test`; torch 2.8.0+cu128) | 34 / 49 | 1.232 (plan off 1.260) | Variance seeds for d_rerun; not used for selection |
 | v2_d_seed2026 | 2026-11-07 (pod) | (d) rerun, seed 2026 | d_rerun flags + `--seed 2026` (no `--eval-test`; torch 2.8.0+cu128) | 21 / 36 | 1.241 (plan off 1.271) | Variance seeds for d_rerun; not used for selection. 3 seeds (42/123/2026): 1.239 ± 0.006 (plan off 1.271 ± 0.011) |
-| v3a | 2026-11-07 | Plan always on (pre-registered) | d_rerun flags with `--plan-drop 0` (no `--eval-test`) | running | – | One change vs d_rerun; judged by the v3a pre-registration |
+| v3a | 2026-11-07 | Plan always on (pre-registered) | d_rerun flags with `--plan-drop 0` (no `--eval-test`) | 22 / 37 | 1.205 (plan off 1.502) | **Passes all three checks; selected** (brake ratio 0.545, placebo 2.40 m). 1 seed, preliminary. `outputs/v3_checks/` |
+| v3b | 2026-11-07 (pod) | Plan cross-attention (branch `v3b-plan-xattn`) | d_rerun flags + `--plan-xattn` (no `--eval-test`; torch 2.8.0+cu128) | 24 / 39 | 1.206 (plan off 1.230) | Fails main check (brake ratio 0.408 < 0.53); placebo and val pass |
+| v3c | 2026-11-07 (pod) | Stand-in ego (branch `v3c-stand-in-ego`) | d_rerun flags + `--stand-in-ego 1.0` (no `--eval-test`; torch 2.8.0+cu128) | 24 / 39 | 1.208 (plan off 1.233) | Fails main check (brake ratio 0.382 < 0.53); placebo and val pass |
 
 Notes
 - Follower test (val, 20 scenes, 6 s travel real / brake / accel): d_rerun 30.7 / 25.3 / 36.7 m, e32 29.5 / 23.3 / 35.5 m,
@@ -194,6 +196,26 @@ reported as "fails". Any pass is preliminary until it is repeated with seeds 123
 - Reason: only 12.6% of the training samples qualify for a stand-in ego, so p = 0.5 would give the model a stand-in
   in only ~6% of samples, likely too few to learn from.
 - Nothing else changes: same three pass criteria, same v2 references, same selection rule and test set.
+
+### v3 results and selection (2026-11-07, val only; `outputs/v3_checks/v3_selection.json`)
+Sanity check first: all three v3 variants gained ~0.035 m val minADE₆ with three different changes. With the current
+code, v2_d_rerun and v2_d_seed123 re-evaluate to exactly 1.243 / 1.232 (plan off 1.281 / 1.260), and the data,
+anchors and training code are unchanged since d_rerun (the only edit to `train_model.py` makes test scoring opt-in). The eval is not the
+cause. The common cause of the gain is **not explained** (v3b / v3c also improve plan off, so it is not plan use).
+
+| Model | Brake ratio (≥ 0.53) | Direction | Lead (≤ 4.2) | Oncoming (≤ 2.2) | Side (≤ 4.2) | Placebo (≤ 2.9 m) | Val minADE₆ (≤ 1.259) | Specificity | Stays behind |
+|---|---|---|---|---|---|---|---|---|---|
+| v2 seed 42 | 0.351 | ✓ | 3.00 | 0.91 | 3.23 | 2.38 | 1.243 | 2.88 | 1/20 |
+| v2 seed 123 | 0.414 | ✓ | 3.16 | 0.63 | 3.11 | 2.30 | 1.232 | 3.03 | 0/20 |
+| v2 seed 2026 | 0.302 | ✓ | 1.87 | 1.17 | 1.27 | 1.44 | 1.241 | 2.50 | 1/20 |
+| **v3a** | **0.545 ✓** | ✓ | 3.14 | 1.37 | 2.69 | 2.40 ✓ | 1.205 ✓ | 3.03 | 2/20 |
+| v3b | 0.408 ✗ | ✓ | 3.37 | 0.57 | 2.12 | 2.02 ✓ | 1.206 ✓ | 2.68 | 1/20 |
+| v3c | 0.382 ✗ | ✓ | 2.36 | 0.65 | 2.70 | 1.90 ✓ | 1.208 ✓ | 3.03 | 0/20 |
+
+**Selection rule applied: winner = v3a** (the only variant passing all three). Caveats: it passes the main check by
+0.015 (0.545 vs 0.53, well inside the v2 seed spread 0.30–0.41 → about a quarter of one SD); 1 seed = preliminary;
+18 of 20 followers still do not stay behind the stopped ego (the reaction is stronger but still too weak).
+No closed-loop test has been run.
 
 ## Next steps (handoff, 2026-11-07, after the final test)
 1. Done: final test (replay v4 + pre-registered reactive run). Decision: WM is safer, on the close-call co-primary
