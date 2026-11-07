@@ -31,6 +31,9 @@ Checkpoints: `checkpoints/<run>/v2_seed<N>_best.pth` + `.json`; logs: `outputs/t
 | v3a | 2026-11-07 | Plan always on (pre-registered) | d_rerun flags with `--plan-drop 0` (no `--eval-test`) | 22 / 37 | 1.205 (plan off 1.502) | **Passes all three checks; selected** (brake ratio 0.545, placebo 2.40 m). 1 seed, preliminary. `outputs/v3_checks/` |
 | v3b | 2026-11-07 (pod) | Plan cross-attention (branch `v3b-plan-xattn`) | d_rerun flags + `--plan-xattn` (no `--eval-test`; torch 2.8.0+cu128) | 24 / 39 | 1.206 (plan off 1.230) | Fails main check (brake ratio 0.408 < 0.53); placebo and val pass |
 | v3c | 2026-11-07 (pod) | Stand-in ego (branch `v3c-stand-in-ego`) | d_rerun flags + `--stand-in-ego 1.0` (no `--eval-test`; torch 2.8.0+cu128) | 24 / 39 | 1.208 (plan off 1.233) | Fails main check (brake ratio 0.382 < 0.53); placebo and val pass |
+| v3a_seed123 | 2026-11-07 (pod) | v3a, seed 123 (amendment 3) | v3a flags + `--seed 123` (no `--eval-test`; torch 2.8.0+cu128; code e489b34) | 26 / 41 | 1.235 (plan off 1.594) | Brake ratio 0.558, placebo 2.42 m: passes |
+| v3a_seed2026 | 2026-11-07 (pod) | v3a, seed 2026 (amendment 3) | v3a flags + `--seed 2026` (same) | 30 / 45 | 1.267 (plan off 1.666) | Brake ratio 0.609; **fails** placebo (3.18 > 2.9 m) and val (1.267 > 1.259) |
+| v2_d_rerun_current | 2026-11-07 (pod) | Control: d_rerun flags unchanged, seed 42, current code | d_rerun flags (no `--eval-test`; torch 2.8.0+cu128; code e489b34) | 22 / 37 | 1.268 (plan off 1.295) | Same seed and flags as d_rerun (laptop, torch 2.15): 1.243. Not a selection candidate |
 
 Notes
 - Follower test (val, 20 scenes, 6 s travel real / brake / accel): d_rerun 30.7 / 25.3 / 36.7 m, e32 29.5 / 23.3 / 35.5 m,
@@ -227,6 +230,24 @@ No closed-loop test has been run.
   closed-loop test.
 - Control run, same time: d_rerun flags unchanged, seed 42, current code (pod). It explains the shared ~0.035 m v3 val
   gain if it also reaches ~1.21 m; it is not a selection candidate.
+
+### v3a confirmation (2026-11-07, amendment 3; val only; `outputs/v3_checks/v3a_confirmation.json`)
+| v3a seed | Brake ratio | Lead | Oncoming | Side | Placebo (≤ 2.9 m) | Val minADE₆ (≤ 1.259) | Specificity | Stays behind |
+|---|---|---|---|---|---|---|---|---|
+| 42 (laptop) | 0.545 | 3.14 | 1.37 | 2.69 | 2.40 ✓ | 1.205 ✓ | 3.03 | 2/20 |
+| 123 (pod) | 0.558 | 2.68 | 1.02 | 3.54 | 2.42 ✓ | 1.235 ✓ | 3.21 | 2/20 |
+| 2026 (pod) | 0.609 | 4.13 | 1.87 | 3.55 | **3.18 ✗** | **1.267 ✗** | 3.11 | 1/20 |
+| mean | **0.571** (≥ 0.53 ✓) | | | | | 1.236 | | |
+
+**Decision: v3a is NOT CONFIRMED** (seed 2026 fails placebo and val). By the pre-stated rule there is **no closed-loop
+test**; `test_v3.json` stays unused.
+- What did hold: the stronger follower reaction is consistent over seeds (0.545–0.609 vs v2 0.302–0.414), with the
+  direction right in all seeds. But in seed 2026 the plan also moves agents that should not react (lead 4.13 m), and
+  even then 18–19 of 20 followers still do not stay behind the stopped ego.
+- Val: the 3-seed v3a mean (1.236) equals the v2 mean (1.239); the 1.205 of seed 42 was a lucky seed.
+- Control: d_rerun retrained with the same seed, flags and code on the pod gives 1.268 vs 1.243 on the laptop (torch 2.8
+  vs 2.15, non-deterministic GPU kernels). So run-to-run noise is ~0.025 m, larger than the 3-seed SD (0.006)
+  suggested, and the "shared ~0.035 m v3 gain" is within that noise. The 0.02 m val margin is tight for this noise.
 
 ## Next steps (handoff, 2026-11-07, after the final test)
 1. Done: final test (replay v4 + pre-registered reactive run). Decision: WM is safer, on the close-call co-primary

@@ -3,19 +3,18 @@
 Updated 2026-11-07.
 
 ## Done
-- v3a trained (laptop); v3a/v3b/v3c checked on val: v3a passes all three pre-registered checks (1 seed, margin 0.015).
-- Closed-loop start time `plan --t0` (checked on mini only). New test set `sim/scene_lists/test_v3.json` (not run).
-- Amendment 3 (v3a confirmation rule) recorded before the seed runs.
+- v3a confirmation (amendment 3): NOT confirmed (seed 2026 fails placebo 3.18 > 2.9 m and val 1.267 > 1.259); mean brake
+  ratio 0.571. No closed-loop test. Control d_rerun retrain (pod): 1.268 vs 1.243.
+- Pod checkpoints + logs copied back, checksums verified: `checkpoints/{v3a_seed123,v3a_seed2026,v2_d_rerun_current}`,
+  `outputs/pod/v3seeds/`.
 
 ## Running
-- Pod (RTX 4090), `/workspace/wm-v3seeds` @ e489b34: v3a seed 123, v3a seed 2026, d_rerun control (seed 42).
-  Logs `/workspace/wm-v3seeds/logs/`. ETA ~1–1.5 h.
+- Nothing.
 
 ## Needs
-- Stop the pod when the checkpoints are copied back (I will say so).
-- Review the cleanup proposal below. Nothing in it has been done.
-
----
+- Stop the pod. Network volume: `/workspace/wm` 3.5 GB, `wm-v3b` / `wm-v3c` / `wm-v3seeds` ~90 MB (all copied);
+  `hf_cache` 6.3 GB and `detector_failure` 7.8 GB are not from this project.
+- Go for the approved cleanup (below).
 
 ## Cleanup plan: APPROVED 2026-11-07 with changes (execute only after the pod results are reported)
 1. Old repo `gnn_trajectory` is shared: no PR into its `main`, no deleting teammates' branches (Ashok, xieyanran,
