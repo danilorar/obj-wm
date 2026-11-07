@@ -491,10 +491,11 @@ def follow(index, replan_steps=5):
 
 
 def plan(predictor_names, scene_indices, gif_indices, viz_indices, checkpoint, out_json, data_dir=None, quiet=False,
-         reactive="off", device="cuda"):
+         reactive="off", device="cuda", t0=0.0, shadow_wm=True):
     """Closed-loop planners (CV and/or WM) on the converted mini scenes + the logged ego ("expert").
     During CV runs the WM runs in shadow mode (chosen plan only) so every at-fault collision can be compared
-    with what the WM would have predicted."""
+    with what the WM would have predicted (shadow_wm=False: no WM is loaded for CV runs).
+    t0: start time [s]; the ego follows its log until t0, metrics count from t0 (run_scene start_step)."""
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     import json
     import numpy as np
@@ -507,7 +508,8 @@ def plan(predictor_names, scene_indices, gif_indices, viz_indices, checkpoint, o
     data_dir = Path(data_dir or SCENARIO_DIR)
     n = get_number_of_scenarios(str(data_dir))
     scene_indices = scene_indices or list(range(n))
-    wm = WorldModelPredictor(checkpoint, device) if ("wm" in predictor_names or "cv" in predictor_names) else None
+    wm = WorldModelPredictor(checkpoint, device) if ("wm" in predictor_names or
+                                                     ("cv" in predictor_names and shadow_wm)) else None
     runs = [(("CV" if p_ == "cv" else "WM") + " planner", CVPredictor() if p_ == "cv" else wm,
              wm if p_ == "cv" else None, {}, False) for p_ in predictor_names]
     runs.append(("expert (log)", None, None, dict(agent_policy=ReplayEgoCarPolicy), True))
@@ -540,7 +542,7 @@ def plan(predictor_names, scene_indices, gif_indices, viz_indices, checkpoint, o
                 gif = out_dir / f"plan_{tag}_scene{i}.gif" if (i in gif_indices and not expert) else None
                 viz = out_dir / f"planview_{tag}_scene{i}.gif" if (i in viz_indices and not expert) else None
                 m, chosen = run_scene(env, predictor, gif=gif, expert=expert, shadow=shadow, viz=viz, device=device,
-                                      reactive=reactive == "idm")
+                                      reactive=reactive == "idm", start_step=int(round(t0 * 10)))
                 m["chosen_plans"], m["index"] = chosen, i
                 rows.append(m)
                 print(f"  {label:14s} {m['scene']}: at-fault {m['at_fault']}, off-road steps {m['offroad_steps']}, "
@@ -1144,6 +1146,8 @@ if __name__ == "__main__":
     p.add_argument("--reactive", choices=("off", "metadrive", "idm"), default="off",
                    help="metadrive: MetaDrive's reactive_traffic; idm: log-path IDM agents (stage 1)")
     p.add_argument("--device", default="cuda", help="device for the WM and the collision cost (cuda / cpu)")
+    p.add_argument("--t0", type=float, default=0.0, help="start time [s]: the ego follows its log until t0")
+    p.add_argument("--no-shadow", action="store_true", help="CV runs without the shadow WM (no WM loaded)")
     p = sub.add_parser("follow")
     p.add_argument("--index", type=int, default=0, help="scenario index (0 = scene-0061)")
     p = sub.add_parser("match")
@@ -1158,7 +1162,7 @@ if __name__ == "__main__":
     elif args.step == "plan":
         plan(args.predictor, args.scenes, args.gif, args.viz, args.checkpoint,
              args.out or OUT_DIR / f"plan_{'_'.join(args.predictor)}.json", args.data, reactive=args.reactive,
-             device=args.device)
+             device=args.device, t0=args.t0, shadow_wm=not args.no_shadow)
     elif args.step == "showcase":
         if "test150" in args.data:
             raise SystemExit("showcase is for development scenes only")

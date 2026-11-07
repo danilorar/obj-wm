@@ -333,9 +333,11 @@ CUT_IN_S = 2.0      # reactive mode: hit from behind within 2 s after the ego en
 
 def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_steps=5, shadow=None, viz=None,
               nearby_radius=30.0, device="cuda", reactive=False, drive_log_scale=None, viz_follow=None,
-              viz_title=None, viz_focus=None):
+              viz_title=None, viz_focus=None, start_step=0):
     """One closed-loop episode (or the logged ego with expert=True). Returns metrics and the chosen-plan log.
 
+    start_step: the ego follows its log until this step (history fills up), then the planner drives from the logged
+    state; all metrics count from start_step on (progress from the start position, initial overlap within 0.5 s of it).
     shadow: a second predictor run on the chosen plan only (e.g. the WM during a CV run), for diagnostics.
     viz: GIF path for the fixed-camera planning view (one frame per planning step)."""
     import time
@@ -356,6 +358,15 @@ def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_st
     for step in range(steps):
         a = env.agent
         x, y, yaw, v = float(a.position[0]), float(a.position[1]), float(a.heading_theta), float(a.speed)
+        if step < start_step:                            # warm-up: the ego is placed on its log, nothing is counted
+            env.step([0.0, 0.0])
+            if not expert:
+                set_ego_to_log(env, scenario, step + 1)
+            if rt is not None:
+                rt.step(snapshot_from_env(env, rt), buffer.snapshots[-5] if len(buffer.snapshots) >= 5 else None,
+                        np.asarray(env.agent.velocity[:2], float))
+            buffer.push(snapshot_from_env(env, rt))
+            continue
         if expert:
             act = [0.0, 0.0]
         elif drive_log_scale is not None:                # no planner: the ego drives its logged route, speed scaled
@@ -468,13 +479,15 @@ def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_st
             frames.append(np.swapaxes(np.asarray(frame), 0, 1))
     poses, speeds = np.asarray(poses), np.asarray(speeds)
     s_end, _ = ref.project(poses[-1, :2])
+    s_start = ref.project(np.asarray(scenario["tracks"][scenario["metadata"]["sdc_id"]]["state"]["position"])
+                          [start_step, :2])[0] if start_step else 0.0
     p2 = poses[::replan_steps, :2]                              # 2 Hz positions
     v2 = np.linalg.norm(np.diff(p2, axis=0), axis=1) / 0.5
     acc = np.diff(v2) / 0.5 if len(v2) > 1 else np.zeros(1)
     jerk = np.diff(acc) / 0.5 if len(acc) > 1 else np.zeros(1)
     collided = []
     for oid, (cat, fault, t, cut_in) in hits.items():
-        kind = classify_collision(t / 10, fault)
+        kind = classify_collision((t - start_step) / 10, fault)
         c = dict(object=oid[:8], object_id=oid, category=cat, at_fault=kind == "at_fault", kind=kind, t=t / 10,
                  unsafe_cut_in=bool(cut_in and kind == "at_fault"))
         if kind == "at_fault":
@@ -484,12 +497,15 @@ def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_st
         collided.append(c)
     metrics = dict(
         scene=scenario["metadata"]["scenario_id"], map=scenario["metadata"].get("map", ""), steps=steps,
+        t0_s=start_step * DT,
         at_fault=sum(c["kind"] == "at_fault" for c in collided),
         not_at_fault=sum(c["kind"] == "not_at_fault" for c in collided),
         initial_overlap=sum(c["kind"] == "initial_overlap" for c in collided),
         collided=collided, metadrive_crash_steps=md_crash, offroad_steps=offroad,
-        progress_ratio=float(min(s_end, ref.length) / ref.length) if ref.length >= 1.0 else float("nan"),
-        overshoot_m=float(max(s_end - ref.length, 0.0)), driven_m=float(s_end), logged_m=float(ref.length),
+        progress_ratio=float((min(s_end, ref.length) - s_start) / (ref.length - s_start))
+        if ref.length - s_start >= 1.0 else float("nan"),
+        overshoot_m=float(max(s_end - ref.length, 0.0)), driven_m=float(s_end - s_start),
+        logged_m=float(ref.length - s_start),
         max_acc=float(np.abs(acc).max()), max_jerk=float(np.abs(jerk).max()),
         plan_ms=float(np.median(t_plan)) if t_plan else 0.0,
         plan_ms_p95=float(np.percentile(t_plan, 95)) if t_plan else 0.0,
@@ -517,6 +533,20 @@ def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_st
 
 
 INITIAL_OVERLAP_S = 0.5
+
+
+def set_ego_to_log(env, scenario, step):
+    """Place the ego at its logged pose at `step`, with the logged speed along its heading (the ScenarioNet nuScenes
+    velocities are 0, so the speed comes from positions 0.5 s apart)."""
+    from sim.planner import logged_speed
+    st = scenario["tracks"][scenario["metadata"]["sdc_id"]]["state"]
+    step = min(step, len(st["position"]) - 1)
+    yaw = float(st["heading"][step])
+    v = logged_speed(scenario, step)
+    env.agent.set_position(np.asarray(st["position"][step][:2], float))
+    env.agent.set_heading_theta(yaw)
+    env.agent.set_velocity([v * np.cos(yaw), v * np.sin(yaw)], in_local_frame=False)
+    env.agent.set_angular_velocity(0.0)
 
 
 def classify_collision(t, at_fault_rule):

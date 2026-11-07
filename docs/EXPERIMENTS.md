@@ -55,6 +55,7 @@ within 2 s). WM = v2_d_rerun unless noted. Results: `outputs/sim/<run>/report.md
 | reactive_dev (stage 1) | 2026-11-07 | mini + dev100 (never test) | `--reactive idm`: log-path IDM agents; IDM tuned on dev100 (3 attempts; final s0 1.0, T 0.8, a_max 3.0, b 3.0, v0 x1.5) | Validation (a) fails (8 s median 0.65 m / p95 3.2 m; tracking law lags, not IDM), (b) passes (0/20 vs replay 18/20); dev100 reactive: rear-ended 0.23 -> 0.02 (CV), 0.24 -> 0.01 (WM); WM close-call -5.1 pp (p 3e-5). Report: `outputs/sim/reactive_dev/report.md`. Pre-registered reactive test NOT run (needs (a) to pass first) |
 | reactive_dev (deviation rule) | 2026-11-07 | mini + dev100 (never test) | IDM only when the leader deviates > 0.3 m from its log; design-doc IDM | Failed on mini: 8 s p95 9.2 m (start-up transients > 0.3 m trigger chain reactions); replaced by the two-state rule |
 | reactive_dev (two-state rule) | 2026-11-07 | mini + dev100 (never test) | REPLAY exactly until a deviating leader (off-log ego / REACTIVE agent) with a_IDM < a_ff; REACTIVE = min(a_track, a_IDM), 1 s smoothed feed-forward clipped to ±3; back after 1 s, \|Δs\| < 0.3 m, \|Δv\| < 0.3 m/s; design-doc IDM | Mini: (a) 0.00 m, 0 new overlaps, expert 0 at fault; (b) pass; (d) ego 10% slower: 0 rear-ends, 0 new overlaps, max decel 3.4 m/s². dev100: (a) 0.00 m, 0 new overlaps, expert 0 at fault; (b) 0/20 (replay 18/20); (d): 1 rear-end by a non-eligible creeping car (by design), 2 new overlaps explained (replayed motorcycle merge; two reactive cars merging; stage-1 limitation), max decel at b_max in 13 / 100 scenes; meets the (d) targets recorded 2026-11-07. Reactive test waits for the user's go |
+| t0 option check | 2026-11-07 | 10 mini (never test) | `plan --t0 {0,4,8} --predictor cv --no-shadow --device cpu`: ego follows its log until t0, then the planner drives; metrics from t0 | t0 = 0 identical to the code before (all fields incl. traces and chosen plans, expert and CV; timing excluded). Expert at-fault 0 at t0 = 4 / 8 s. CV at-fault 1 / 1 / 0 at t0 = 0 / 4 / 8 (scene-1094 rider, as before); smooth hand-over (speed continuous, max \|a\| 3.5 vs 3.2 at t0 = 0). Outputs `outputs/sim/t0_check/` |
 
 ## Pre-registration: closed-loop test with reactive agents
 Written 2026-11-06, before any reactive run on the test scenes. Nothing below may change after the first reactive
@@ -185,8 +186,8 @@ reported as "fails". Any pass is preliminary until it is repeated with seeds 123
   - Caveat: the scenes are the same as test150, and the windows overlap the seconds already driven there (test150
     episodes ran the whole ~19.5 s log). The start states and the plans are new; the traffic is not unseen. No unused
     nuScenes scenes remain (train/val went into training, all test scenes into test150).
-  - The simulator has no start-time option yet. It must be added and checked on the mini scenes only, before the
-    test run.
+  - Start-time option added 2026-11-07 (`sim_check.py plan --t0`, checked on the mini scenes only; see the
+    closed-loop table, row "t0 option check").
 
 ## Next steps (handoff, 2026-11-07, after the final test)
 1. Done: final test (replay v4 + pre-registered reactive run). Decision: WM is safer, on the close-call co-primary
