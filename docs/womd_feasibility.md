@@ -188,12 +188,31 @@ Same code for both datasets (`scripts/womd.py follower`), on a 2 Hz grid (nuScen
 - Known bias: nuScenes 2 Hz annotations are noisier than WOMD's 10 Hz tracks. This can only inflate the nuScenes
   counts, so it makes the gate harder to pass (conservative).
 
-### Step 0 results so far
-| Dataset | Scenes | Ego-moving h | Brake episodes | With follower | Strong events | R (strong / h) |
-|---|---|---|---|---|---|---|
-| nuScenes official train | 700 | 2.40 | 212 | 72 | 37 | **15.4** |
-| WOMD validation-00000 | waiting for the file | | | | | |
+### Step 0 results (2026-11-07)
+Test IDs were committed first (`1900f41`). WOMD = v1.3.1 `validation.tfrecord-00000-of-00150` (286 scenarios).
 
-The gate needs R_WOMD ≥ 30.8 / h with ≥ 10 events. Raw output: `outputs/womd_step0/nuscenes_train.json` (local).
-Suspicious, to check: 51% of followed brake episodes also have a hard-braking follower, which may be partly
-nuScenes annotation noise. A base-rate check (how often followers "brake hard" when the ego does not) would show this.
+| Dataset | Scenes | Ego-moving h | Ego brake episodes / h | With follower | Strong events | **R (strong / h)** | 95% CI (Poisson) |
+|---|---|---|---|---|---|---|---|
+| nuScenes official train | 700 | 2.40 | 88.2 | 72 | 37 | **15.4** | 10.8 – 21.2 |
+| WOMD val 00000 | 286 | 0.26 | 30.3 | 2 | 2 | **7.6** | 0.9 – 27.4 |
+
+**Gate (pre-registered):** R_WOMD ≥ 30.8 / h and ≥ 10 events. **Not met.** By the written rule the outcome is
+"inconclusive" (2 < 10 events), which calls for 2 more files. But the data already speak against it: if WOMD's true
+rate were 2 × nuScenes, the chance of seeing ≤ 2 of the 39 combined events in WOMD is **p = 0.02** (exact
+conditional binomial test). The WOMD point estimate is half the nuScenes rate, not double.
+
+**Base-rate check (reported only, not part of the gate).** (follower, t) pairs over the same exposure keyframes:
+
+| | nuScenes | WOMD 00000 |
+|---|---|---|
+| P(follower brakes hard within 2 s \| ego brakes) | 0.51 (56 / 109) | 1.00 (6 / 6) |
+| P(follower brakes hard within 2 s \| ego does not brake) | 0.065 (497 / 7,680) | 0.099 (82 / 824) |
+| Lift (ego brakes vs not) | 7.9× | ~10× (n = 6) |
+| Any moving vehicle, share of keyframes with a ≤ −2 m/s² (noise floor) | 0.040 | 0.040 |
+
+The 51% from nuScenes is real co-braking, not annotation noise: it is 8× the no-brake rate, and the
+noise floor is the same in both datasets (4.0%). The concern raised earlier is withdrawn.
+
+**Why WOMD is lower:** WOMD's interactions are mined between *agents*, not around the ego. The Waymo SDC brakes hard
+3× less often than the nuScenes ego (30 vs 88 episodes / h), and it is stationary more often (0.26 ego-moving hours
+in 286 × 9 s scenes ≈ 37% of the time).

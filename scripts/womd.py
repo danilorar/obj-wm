@@ -153,6 +153,38 @@ def scene_events(ego, agents):
                 strong=sum(e[2] for e in episodes))
 
 
+def base_rates(ego, agents):
+    """Reported only (not part of the gate). Over the same exposure keyframes as scene_events:
+    (follower, t) pairs split by whether the ego brakes at t, and whether that follower reaches a <= A_BRAKE within
+    t ... t + 2 s; plus how often any moving vehicle has a <= A_BRAKE at a keyframe (the noise floor)."""
+    epos, eyaw, evalid = ego
+    T = len(evalid)
+    ev, evv, ea, eav = kinematics(epos, eyaw, evalid)
+    kin = [kinematics(*ag) for ag in agents]
+    out = dict(pairs_brake=0, hard_brake=0, pairs_nobrake=0, hard_nobrake=0, veh_keyframes=0, veh_hard=0)
+    for v, vv, a, av in kin:
+        m = av & vv & (np.abs(v) >= V_MIN)
+        out["veh_keyframes"] += int(m.sum())
+        out["veh_hard"] += int((m & (a <= A_BRAKE)).sum())
+    for t in range(2, T - REACT):
+        if not (eav[t] and evv[t - 2] and ev[t - 2] >= V_MIN):
+            continue
+        key = "brake" if ea[t] <= A_BRAKE else "nobrake"
+        c, s = np.cos(eyaw[t]), np.sin(eyaw[t])
+        for (apos, ayaw, avalid), (v, vv, a, av) in zip(agents, kin):
+            if not (avalid[t] and vv[t] and v[t] >= V_MIN):
+                continue
+            dx, dy = apos[t] - epos[t]
+            x, y = c * dx + s * dy, -s * dx + c * dy
+            dyaw = abs((ayaw[t] - eyaw[t] + np.pi) % (2 * np.pi) - np.pi)
+            if not (X_BEHIND[0] <= x <= X_BEHIND[1] and abs(y) <= Y_LAT and dyaw <= YAW_MAX):
+                continue
+            w = slice(t, t + REACT + 1)
+            out["pairs_" + key] += 1
+            out["hard_" + key] += int(np.any(av[w] & (a[w] <= A_BRAKE)))
+    return out
+
+
 def womd_scenes(paths):
     for s in womd_scenarios(paths):
         arr = {tr.id: _track_arrays(tr) for tr in s.tracks}
@@ -201,14 +233,23 @@ def cmd_follower(args):
         name, scenes = "nuscenes_train", nuscenes_scenes(args.nuscenes)
     rows = []
     for sid, ego, agents in scenes:
-        rows.append({"scene": sid, **scene_events(ego, agents)})
+        rows.append({"scene": sid, **scene_events(ego, agents), **(base_rates(ego, agents) if args.base_rate else {})})
     tot = {k: int(sum(r[k] for r in rows)) for k in ("exposure", "brakes", "with_follower", "strong")}
+    if args.base_rate:
+        b = {k: int(sum(r[k] for r in rows)) for k in ("pairs_brake", "hard_brake", "pairs_nobrake", "hard_nobrake",
+                                                      "veh_keyframes", "veh_hard")}
+        share = lambda n, d: round(n / d, 4) if d else None
+        b.update(p_follower_hard_if_ego_brakes=share(b["hard_brake"], b["pairs_brake"]),
+                 p_follower_hard_if_ego_not=share(b["hard_nobrake"], b["pairs_nobrake"]),
+                 p_vehicle_keyframe_hard=share(b["veh_hard"], b["veh_keyframes"]))
     hours = tot["exposure"] * DT / 3600
     summary = {"dataset": name, "scenes": len(rows), "ego_moving_hours": round(hours, 3), **tot,
                "strong_per_hour": round(tot["strong"] / hours, 2) if hours else None,
                "brakes_per_hour": round(tot["brakes"] / hours, 2) if hours else None,
                "strong_share_of_followed_brakes": round(tot["strong"] / tot["with_follower"], 3)
                if tot["with_follower"] else None}
+    if args.base_rate:
+        summary["base_rate"] = b
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps({"summary": summary, "per_scene": rows}, indent=1))
     print(json.dumps(summary))
@@ -226,6 +267,7 @@ def main():
     g.add_argument("--womd", nargs="+", help="validation tfrecords (never files 140-149)")
     g.add_argument("--nuscenes", help="nuScenes dataroot (with v1.0-trainval)")
     f.add_argument("--out", required=True)
+    f.add_argument("--base-rate", action="store_true", help="also report follower / vehicle hard-brake base rates")
     args = p.parse_args()
     if args.cmd == "follower" and args.womd:
         bad = [w for w in args.womd if "validation" in Path(w).name and int(Path(w).name.split("-")[1]) in TEST_FILES]
