@@ -17,6 +17,23 @@ Updated 2026-11-07.
 
 ---
 
+## Cleanup plan: APPROVED 2026-11-07 with changes (execute only after the pod results are reported)
+1. Old repo `gnn_trajectory` is shared: no PR into its `main`, no deleting teammates' branches (Ashok, xieyanran,
+   results/attack-baselines-and-modes). Only add tag `v1-gnn` there (on `origin/feature/trajectory-prediction`).
+2. Final branch = `v3a-no-plan-dropout` after merging `pod-runs` and the womd-feasibility docs (feasibility study,
+   NO-GO result, `womd_test300.json`). It becomes `main` of a NEW repo (Danilo creates it).
+3. Tags `v3b-xattn`, `v3c-stand-in`, `womd-nogo`; then delete those branches locally; remove worktrees `../wm-pod`,
+   `../wm-womd`.
+4. Delete (git-ignored): `data/womd`, `data/av2`, `checkpoints/v2_check`, `checkpoints/v2_multi_check`, superseded
+   `outputs/sim/test150*` GIFs (keep all JSON).
+5. Scripts: `run_interaction_analysis.py`, `check_lane_tokens.py` → `legacy/`; `run_turn_angle_analysis.py` →
+   `analyze_v2.py`, docs updated.
+6. Docs (CLAUDE.md, CODE_GUIDE.md, EXPERIMENTS.md handoff, README): after the v3a results.
+7. Pod: after copy-back, report which `/workspace` data is on the network volume (Danilo deletes it in RunPod Storage).
+Rule: ask before deleting any tracked file.
+
+<details><summary>Original proposal</summary>
+
 ## Cleanup proposal (for review, nothing changed yet)
 
 ### Branches
@@ -62,3 +79,5 @@ Final structure: `main` only (+ one working branch at a time); tags `v1-gnn`, `v
 - `scripts/run_turn_angle_analysis.py` now also holds the follower/placebo tests; the name is misleading. Optional
   rename (e.g. `analyze_v2.py`), with README/CODE_GUIDE updated.
 - `scripts/pod/check_v3_flags_off.py` (on v3b/v3c branches): keep with the tags.
+
+</details>
