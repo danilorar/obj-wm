@@ -145,7 +145,7 @@ Check (d): the logged ego driven 10% slower along its logged route, agents in `-
 **Change (one only):** v2_d_rerun flags with `--plan-drop 0` instead of 0.2. Seed 42, branch `v3a-no-plan-dropout`.
 No `--eval-test`; no test split and no test scenes are used. 1 seed = preliminary result.
 
-**Metrics** (open loop, `run_turn_angle_analysis.py --follower-test DIR --follower-group G`, the same 20 val scenes as
+**Metrics** (open loop, `analyze_v2.py --follower-test DIR --follower-group G`, the same 20 val scenes as
 before, ego plan re-timed to brake to a stop at −4 m/s² or accelerate at +2 m/s²):
 - *Brake reaction ratio* (followers 2–15 m behind the ego in its lane): (predicted travel at 6 s with the real plan −
   with the brake plan) / (drop needed to stay one car length, 4.5 m centre to centre, behind the stopped ego). The

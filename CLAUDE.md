@@ -12,7 +12,7 @@ v2 = scene transformer (branch v2-transformer). See docs/CODE_GUIDE.md for file-
 
 ## Key commands
 - Train v2: `python scripts/train_model.py --model v2 ...` (see CODE_GUIDE for flags)
-- Turn bins / CV baseline: `python scripts/run_turn_angle_analysis.py --model v2 ...`
+- Turn bins / CV baseline: `python scripts/analyze_v2.py --model v2 ...`
 - Simulator: `.venv_sim/bin/python scripts/sim_check.py {match|follow|plan|evaluate} ...`
 
 ## Data splits — never break these

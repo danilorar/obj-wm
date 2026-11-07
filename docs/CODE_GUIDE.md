@@ -19,7 +19,7 @@ wm/
 │   ├── check_lane_tokens.py         plot the lane tokens of one sample (visual check)
 │   ├── make_anchors.py              endpoint anchors -> assets/anchors*.npy
 │   ├── train_model.py               train / evaluate v1 and v2
-│   ├── run_turn_angle_analysis.py   errors by turn angle, top-1 errors, example plots
+│   ├── analyze_v2.py   errors by turn angle, top-1 errors, example plots
 │   ├── run_interaction_analysis.py  v1 neighbour-removal analysis
 │   └── sim_check.py                 Phase D prep: MetaDrive / ScenarioNet smoke tests
 ├── plots/                      v1 plotting (qualitative figures, the v1 README GIF)
@@ -126,7 +126,7 @@ Full model:
   with `--ego-plan`), mode wins (flags a mode below 3%). After training: val and test once on the best
   checkpoint, written to the manifest JSON next to the checkpoint.
 
-### `scripts/run_turn_angle_analysis.py`
+### `scripts/analyze_v2.py`
 Errors binned by the absolute endpoint angle (0–15°, 15–30°, 30–60°, 60°+, only endpoints ≥ 5 m away; same
 definition as the v1 report). Reads anchors and model options from the checkpoint and its manifest.
 `--examples out.png` instead plots 8 val examples (2 per bin) with lanes, agents, ground truth and the 6 modes.
@@ -136,7 +136,7 @@ Note: the 60°+ bin also contains reversing agents (endpoint behind the target).
 `--method kmeans` (default): k-means (K = 6) on train endpoints -> `assets/anchors.npy`.
 `--method angle`: 2 straight anchors + one each for right, sharp right, left, sharp left -> `assets/anchors_angle.npy`.
 
-### `scripts/check_lane_tokens.py`
+### `legacy/check_lane_tokens.py`
 Builds the lane tokens of one sample directly from the map and plots segments, direction arrows and edges.
 
 ### `sim/adapter.py` (Phase D: simulator -> model inputs)
@@ -187,9 +187,9 @@ Training env: `.venv` (main). Simulator env: `.venv_sim`. Run everything from th
 .venv/bin/python scripts/train_model.py --model v2 --evaluate-only --checkpoint checkpoints/v2_predicted/v2_seed42_best.pth
 
 # Turn-angle bins on val, and an example plot
-.venv/bin/python scripts/run_turn_angle_analysis.py --model v2 --checkpoint checkpoints/v2_predicted/v2_seed42_best.pth \
+.venv/bin/python scripts/analyze_v2.py --model v2 --checkpoint checkpoints/v2_predicted/v2_seed42_best.pth \
     --dataset data/processed_v2/nuscenes_val_prediction_samples_map.pkl --output outputs/turn_bins.json
-.venv/bin/python scripts/run_turn_angle_analysis.py --model v2 --checkpoint checkpoints/v2_predicted/v2_seed42_best.pth \
+.venv/bin/python scripts/analyze_v2.py --model v2 --checkpoint checkpoints/v2_predicted/v2_seed42_best.pth \
     --dataset data/processed_v2/nuscenes_val_prediction_samples_map.pkl --examples outputs/v2_examples_val.png
 
 # Simulator smoke test (CPU)
