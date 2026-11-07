@@ -240,3 +240,24 @@ in 286 × 9 s scenes ≈ 37% of the time).
   handle the real SDC, a check that the follower test still measures the right thing). Not planned yet.
 - Cheaper first test of the follower weakness, on nuScenes: retrain with the ego-plan token never dropped and rerun
   the follower test.
+
+---
+
+## Argoverse 2 (AV2): same step-0 check (pre-registered 2026-11-07, before any AV2 data was read)
+
+Why look at it: the AV2 paper says its 250k motion-forecasting scenarios were "mined for interesting and challenging
+interactions between the autonomous vehicle and other actors"
+([paper](https://arxiv.org/abs/2301.00493)). That is ego-centric mining, which WOMD lacks. Licence CC BY-NC-SA 4.0
+(non-commercial). Public S3 bucket `s3://argoverse/datasets/av2/motion-forecasting/{train,val,test}/`, with no login.
+One folder per scenario (`scenario_<id>.parquet` ~70–270 KB + `log_map_archive_<id>.json` ~50–200 KB). ScenarioNet
+has `convert_argoverse2` (needs the `av2` package; ego = track `"AV"`; box sizes are fixed estimates because AV2 has
+none).
+
+- **Sample:** the first 2,000 scenario folders of AV2 `val` in S3 key order (the IDs are random UUIDs, so the order
+  carries no selection), trajectories (`.parquet`) only. The IDs are saved locally. **Any future AV2 test set must
+  exclude them.**
+- **Same code and definition** as the WOMD / nuScenes step 0 (`scripts/womd.py follower`, new `--av2` reader).
+  2 Hz = AV2 steps 0, 5, …, 105 (110 steps at 10 Hz). Ego = track `AV`. Vehicles = object_type vehicle, bus,
+  motorcyclist (as nuScenes `vehicle.*` without bicycles). Valid = a row exists for that track and step.
+- **Same gate:** R_AV2 ≥ 2 × R_nuScenes = **30.8 strong events / h** and ≥ 10 events → go for an AV2 v3 spec.
+  Otherwise no-go. Base rates are reported only.
