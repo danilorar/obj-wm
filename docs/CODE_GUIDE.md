@@ -166,6 +166,12 @@ reactive road users, `--t0 S` to start at S seconds (the ego follows its log unt
 `--no-shadow` to skip the shadow WM in CV runs (no GPU needed).
 `evaluate`: the full CV-vs-WM evaluation with paired statistics (bootstrap CIs, Wilcoxon) and a report.
 `reactive-check`: validation of the reactive road users (mini + dev100). `showcase`: the README GIF.
+`hesitation results.json ...`: stop-and-go / chatter metrics from driven traces (no simulation).
+
+### `scripts/demo_2x2.py` (README examples)
+CV vs WM on development scenes, MetaDrive 3D + top-down: `grid` (assets/examples_grid.png), `videos`, `clip`
+(example 1, ~8 s with slow motion and a freeze-frame -> assets/example1_clip.gif; MP4 in outputs/, not in git).
+Uses the off-by-default `step_hook` of `run_scene`. Selection rule: docs/demo_selection.md.
 
 ## 4. v2 flags (`train_model.py --model v2`)
 

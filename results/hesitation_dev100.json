@@ -1,0 +1,49 @@
+{
+ "description": "Planner chatter on the 100 dev100 development scenes (never test), from existing closed-loop runs (no planner changes): 2 Hz speeds from driven positions; acceleration sign flips among samples with |a| > 1 m/s^2; stop-go = >= 2 m/s, then < 0.5 m/s, then >= 2 m/s again; per minute of driving. Command: scripts/sim_check.py hesitation <results.json ...>. 'expert' = the logged human driver.",
+ "replay": {
+  "CV": {
+   "scenes": 100,
+   "minutes": 32.3,
+   "accel_sign_flips_per_min": 9.68,
+   "stop_go_per_min": 0.557,
+   "mean_abs_jerk": 2.4
+  },
+  "WM": {
+   "scenes": 100,
+   "minutes": 32.3,
+   "accel_sign_flips_per_min": 13.42,
+   "stop_go_per_min": 0.897,
+   "mean_abs_jerk": 2.75
+  },
+  "expert": {
+   "scenes": 100,
+   "minutes": 32.3,
+   "accel_sign_flips_per_min": 8.01,
+   "stop_go_per_min": 0.309,
+   "mean_abs_jerk": 1.25
+  }
+ },
+ "reactive_idm": {
+  "CV": {
+   "scenes": 100,
+   "minutes": 32.3,
+   "accel_sign_flips_per_min": 8.56,
+   "stop_go_per_min": 0.371,
+   "mean_abs_jerk": 2.23
+  },
+  "WM": {
+   "scenes": 100,
+   "minutes": 32.3,
+   "accel_sign_flips_per_min": 12.0,
+   "stop_go_per_min": 0.742,
+   "mean_abs_jerk": 2.58
+  },
+  "expert": {
+   "scenes": 100,
+   "minutes": 32.3,
+   "accel_sign_flips_per_min": 8.01,
+   "stop_go_per_min": 0.309,
+   "mean_abs_jerk": 1.25
+  }
+ }
+}

@@ -97,9 +97,27 @@ situation that teaches this reaction. Both have fewer such events per ego-moving
 6.5 vs nuScenes 15.4; the pre-set gate was 2× nuScenes), so switching datasets was stopped
 ([docs/womd_feasibility.md](docs/womd_feasibility.md)).
 
-## Examples
+## Examples (illustration)
 
-<!-- Examples (illustration): added in the next commit. -->
+Development scenes, not test scenes: these show what the planners do, the evidence is the table above.
+
+<p align="center">
+  <img src="assets/example1_clip.gif" width="960" alt="Example 1: a truck with a trailer turns across our lane; the CV planner passes within 0.03 m, the WM planner slows and keeps 1.3 m. Real time, then 0.5x slow motion and a freeze-frame at the closest moment">
+</p>
+
+*Example 1 (dev100 scene-0263): a truck with a trailer turns across our lane. The CV planner (left) passes it at
+0.03 m; the WM planner (right) slows and keeps 1.30 m. ~8 s around the closest moment, with a 0.5× slow-motion part
+and a 1 s freeze-frame. [Full-resolution MP4](https://github.com/danilorar/obj-wm/releases/tag/v2-demo).*
+
+<p align="center">
+  <img src="assets/examples_grid.png" width="960" alt="Three development scenes, each shown as CV 3D, CV top-down, WM 3D, WM top-down at the CV planner's closest moment">
+</p>
+
+*Three development scenes at the CV planner's closest moment (3D view and top-down, CV vs WM). Picked by a fixed rule
+among 66 eligible development scenes (no at-fault collision; WM never stops while the logged driver moves): largest
+gain where CV gets within 1 m, median gain, largest gain of another situation type. Of the 66 eligible scenes, the WM
+planner keeps more distance in 25, CV in 8, and they are equal in 33. Rules 1 and 3 were amended **post hoc**
+(after seeing the first picks); rule, amendments and rendering notes: [docs/demo_selection.md](docs/demo_selection.md).*
 
 ## Limitations
 
@@ -111,6 +129,21 @@ situation that teaches this reaction. Both have fewer such events per ego-moving
   cyclists replay the log.
 - **Weak reaction to our plan.** The predicted reaction to our plan is weaker than real drivers' (see v3).
 - **Small open-loop differences are noisy** (cross-machine note above).
+- **The WM planner is safe but can chatter (stop-and-go).** Every 0.5 s it picks the best of 35 plans with no cost for
+  switching, on a coarse speed grid (0, 2, 4, … 12 m/s: nothing between standing and 2 m/s), while the multimodal
+  predictions shift a little at each step. In one development scene it stopped for ~4 s mid-junction while the logged
+  driver kept moving. Measured on the 100 dev100 development scenes from existing runs (no planner change; 2 Hz
+  positions; [results/hesitation_dev100.json](results/hesitation_dev100.json)):
+
+  | Other road users | Planner | Accel. sign flips / min (\|a\| > 1 m/s²) | Stop-go events / min | Mean \|jerk\| [m/s³] |
+  |---|---|---|---|---|
+  | replay | CV | 9.7 | 0.56 | 2.40 |
+  | replay | WM | 13.4 | 0.90 | 2.75 |
+  | react | CV | 8.6 | 0.37 | 2.23 |
+  | react | WM | 12.0 | 0.74 | 2.58 |
+  | – | logged driver | 8.0 | 0.31 | 1.25 |
+
+  The test results above are for this planner as it is.
 
 ## Future work
 
@@ -118,6 +151,8 @@ situation that teaches this reaction. Both have fewer such events per ego-moving
 - Reactive road users, stage 2: swept ego footprint, merge anticipation, reacting pedestrians and cyclists.
 - More predicted road users than 16 (32 / 63 slots were tested, see EXPERIMENTS.md).
 - Several seeds per variant on one machine before any val threshold is applied.
+- Smoother planning: a switching cost or hysteresis between consecutive plan choices, finer or continuous speed
+  sampling (MPPI-style), and speed smoothing.
 
 ## Reproduce
 

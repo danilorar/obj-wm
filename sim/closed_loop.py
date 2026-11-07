@@ -333,13 +333,15 @@ CUT_IN_S = 2.0      # reactive mode: hit from behind within 2 s after the ego en
 
 def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_steps=5, shadow=None, viz=None,
               nearby_radius=30.0, device="cuda", reactive=False, drive_log_scale=None, viz_follow=None,
-              viz_title=None, viz_focus=None, start_step=0):
+              viz_title=None, viz_focus=None, start_step=0, step_hook=None, max_steps=None):
     """One closed-loop episode (or the logged ego with expert=True). Returns metrics and the chosen-plan log.
 
     start_step: the ego follows its log until this step (history fills up), then the planner drives from the logged
     state; all metrics count from start_step on (progress from the start position, initial overlap within 0.5 s of it).
     shadow: a second predictor run on the chosen plan only (e.g. the WM during a CV run), for diagnostics.
-    viz: GIF path for the fixed-camera planning view (one frame per planning step)."""
+    viz: GIF path for the fixed-camera planning view (one frame per planning step).
+    step_hook: called after every sim step with the current state and the last plan (demo video; default off).
+    max_steps: stop after this many sim steps (short test renders)."""
     import time
     from sim.adapter import add_connector_polygons
     scenario = env.engine.data_manager.current_scenario
@@ -350,7 +352,8 @@ def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_st
     rt = ReactiveTraffic(env) if reactive else None
     buffer.push(snapshot_from_env(env, rt))
     r_err, r_pairs, r_log_pairs, r_standoff = {}, set(), set(), 0
-    steps = scenario["length"] - 1
+    steps = scenario["length"] - 1 if max_steps is None else min(scenario["length"] - 1, max_steps)
+    last_plan = None
     poses, speeds, offroad, md_crash, frames, chosen_log, hits, t_plan = [], [], 0, 0, [], [], {}, []
     pred_log, coverage, viz_frames, t_parts, near_d, near_ttc, track_err = [], [], [], [], [], [], []
     plan, plan_t = None, 0.0
@@ -395,6 +398,9 @@ def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_st
                              agent_risk_chosen={i: float(r[k]) for i, r in agent_risk.items() if r[k] > 1e-6},
                              **{n: float(t_[k]) for n, t_ in terms.items() if n != "vetoed"})
                 chosen_log.append(entry)
+                if step_hook is not None:
+                    last_plan = dict(step=step, dense=dense, k=k, paths=paths[k], probs=probs[k], ids=list(ids),
+                                     speed=meta[k][0])
                 # WM predictions for the chosen plan (own, or shadow during a CV run) + coverage of nearby agents
                 if wm is not None:
                     if wm is predictor:
@@ -473,6 +479,10 @@ def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_st
         nm_d, nm_ttc = near_miss(pose, ego_vel, ego_size, buffer.now(), old)
         near_d.append(nm_d)
         near_ttc.append(nm_ttc)
+        if step_hook is not None:
+            step_hook(dict(env=env, step=step + 1, pose=pose, speed=float(a.speed), snapshot=dict(buffer.now()),
+                           plan=last_plan, near_d=nm_d, collided=any(h[1] for h in hits.values()),
+                           features=features, ego_size=ego_size))
         if gif is not None and step % 2 == 0:
             frame = env.render(mode="topdown", window=False, screen_size=(700, 700), film_size=(3000, 3000),
                                scaling=4, draw_target_vehicle_trajectory=True)

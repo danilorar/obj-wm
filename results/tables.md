@@ -31,6 +31,17 @@ Same seed and flags on another machine (control): 1.268 m vs 1.243 m.
 
 v3a 3-seed mean brake ratio 0.571; confirmed: False.
 
+## Planner chatter on dev100 (development scenes)
+
+| Other road users | Planner | Accel. sign flips / min | Stop-go / min | Mean abs jerk [m/s^3] |
+|---|---|---|---|---|
+| replay | CV | 9.7 | 0.56 | 2.40 |
+| replay | WM | 13.4 | 0.90 | 2.75 |
+| replay | expert | 8.0 | 0.31 | 1.25 |
+| react | CV | 8.6 | 0.37 | 2.23 |
+| react | WM | 12.0 | 0.74 | 2.58 |
+| react | expert | 8.0 | 0.31 | 1.25 |
+
 ## Strong ego-follower braking events per hour
 
 nuScenes 15.4, WOMD 11.1, Argoverse 2 6.5 (gate 30.8): NO-GO.
