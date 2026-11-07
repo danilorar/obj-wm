@@ -154,3 +154,36 @@ Second risk: the 9 s scenes give only 7 s of closed loop, so at-fault events wil
 5. **End of log in closed loop:** score only the first 5 s of each 7 s episode, or continue the missing agents as
    constant velocity.
 6. **Truck class:** map every VEHICLE to "car", or split by length > 6 m.
+
+---
+
+## Decisions (2026-11-07, from Danilo)
+
+1. Step 0 uses 1 validation file, **not** one of files 140–149 (reserved for test). Chosen: `validation.tfrecord-00000-of-00150` (part of womd_val).
+2. New env `.venv_womd` (Python 3.10, tensorflow-cpu 2.15.1, protobuf 4.25.9, numpy 1.26.4, MetaDrive + ScenarioNet
+   editable). Built 2026-11-07; the ScenarioNet Waymo protos import fine, so the protobuf conflict is solved (verified at import level).
+3. Processed WOMD data stays on the laptop for now and is never committed (`data/` is git-ignored).
+4. Test design (section 5) is approved. The 300 test scene IDs are committed (`sim/scene_lists/womd_test300.json`)
+   **before** step 0 or any training.
+5. Closed loop: score only the first 5 s of each episode; no constant-velocity extension.
+6. All WOMD vehicles map to "car"; keep the real box sizes.
+
+## Step 0: pre-registered definition (written before any count was run)
+
+Same code for both datasets (`scripts/womd.py follower`), on a 2 Hz grid (nuScenes keyframes; WOMD steps 0, 5, …, 90).
+- Speed v[k] = displacement from k−1 to k, projected on the heading at k, ÷ 0.5 s. Acceleration a[k] = (v[k] − v[k−2]) / 1 s.
+  The 1 s window reduces the annotation noise of nuScenes (CLAUDE.md: accelerations from 2 Hz positions).
+- **Exposure:** keyframes t where the ego's a[t] is defined, the ego moved at ≥ 2 m/s at t − 1 s, and the log
+  continues to t + 2 s. Reported as ego-moving hours.
+- **Ego brake:** a_ego[t] ≤ −2 m/s². Consecutive brake keyframes form one **episode**.
+- **Follower at t:** a vehicle (nuScenes `vehicle.*` except bicycles; WOMD TYPE_VEHICLE), moving at ≥ 2 m/s, with its
+  centre 3–30 m behind the ego (ego frame), |lateral| ≤ 2 m, heading within 30° of the ego.
+- **Strong follower event:** a brake episode with at least one follower that reaches a ≤ −2 m/s² within t … t + 2 s.
+- **Primary number:** strong events per ego-moving hour, R. **nuScenes side:** the official `train` scenes (700 =
+  our train + val); the official `val` scenes (our test) are never read.
+- **Gate (from section 4):** go if R_WOMD ≥ 2 × R_nuScenes **and** WOMD has ≥ 10 strong events. With < 10 events the
+  result is "inconclusive": ask for 2 more files (00001, 00002) and rerun on the 3 files together.
+- Also reported (not used for the gate): brake episodes per hour, and the share of followed brake episodes where the
+  follower also braked hard.
+- Known bias: nuScenes 2 Hz annotations are noisier than WOMD's 10 Hz tracks. This can only inflate the nuScenes
+  counts, so it makes the gate harder to pass (conservative).
