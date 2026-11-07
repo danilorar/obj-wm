@@ -1,7 +1,9 @@
-# Code guide (v2 branch)
+# Code guide
 
 A map of the repository for review: what lives where, what each v2 file does, the flags, and how to run things.
-v1 is the GATv2-GRU model from the report; v2 is the scene transformer on branch `v2-transformer`.
+v1 is the GATv2-GRU model from the course report (tag `v1-gnn`); v2 is the scene transformer, the official model is
+`v2_d_rerun`. The v3 ablations (v3a/b/c) are recorded in docs/EXPERIMENTS.md; only v3a's flag (`--plan-drop 0`) is
+in this code, v3b / v3c are on tags `v3b-xattn` / `v3c-stand-in`.
 
 ## 1. Repository structure
 
@@ -16,16 +18,19 @@ wm/
 │   └── training_utils.py       shared: seeds, manifests, multimodal_metrics, v1 train loop
 ├── scripts/                    command-line entry points
 │   ├── build_processed_dataset.py   nuScenes -> data/processed(_v2)/*.pkl
-│   ├── check_lane_tokens.py         plot the lane tokens of one sample (visual check)
 │   ├── make_anchors.py              endpoint anchors -> assets/anchors*.npy
 │   ├── train_model.py               train / evaluate v1 and v2
-│   ├── analyze_v2.py   errors by turn angle, top-1 errors, example plots
-│   ├── run_interaction_analysis.py  v1 neighbour-removal analysis
-│   └── sim_check.py                 Phase D prep: MetaDrive / ScenarioNet smoke tests
+│   ├── analyze_v2.py                open-loop analysis: turn bins, CV baseline, follower / placebo test, examples
+│   └── sim_check.py                 simulator entry point: convert, replay, plan, evaluate, reactive checks
+├── sim/                        planner.py (plans, tracker), closed_loop.py (episode loop, costs, metrics,
+│   │                           reactive road users), adapter.py (sim -> model inputs)
+│   └── scene_lists/            dev100.json; reserved, never run: test_v3.json, womd_test300.json
+├── legacy/                     v1-era scripts: check_lane_tokens.py, run_interaction_analysis.py
 ├── plots/                      v1 plotting (qualitative figures, the v1 README GIF)
-├── assets/                     anchors.npy (k-means), anchors_angle.npy (turn-spread), README GIF
-├── report/                     v1 report PDF, v2_training_plan.xlsx (settings + results)
-├── docs/CODE_GUIDE.md          this file
+├── assets/                     anchors.npy (k-means), anchors_angle.npy (turn-spread), README figures and GIF
+├── docs/                       CODE_GUIDE.md (this file), EXPERIMENTS.md (every run + pre-registrations),
+│                               reactive_agents_design.md, womd_feasibility.md, architecture.png
+├── status/                     per-agent status files (sim.md, pod.md)
 ├── data/                       local only (git-ignored except LICENSE)
 │   ├── v1.0-trainval/          nuScenes metadata tables
 │   ├── maps/                   map expansion v1.3 (+ prediction splits)
@@ -33,7 +38,7 @@ wm/
 │   └── processed_v2/           built v2 datasets: train / val / test .pkl
 ├── checkpoints/                local only: one folder per experiment, *_best.pth + *.json manifest
 ├── outputs/                    local only: training logs, plots, turn-bin JSONs, sim/ images
-├── sim/                        local only: MetaDrive + ScenarioNet clones, converted scenarios
+├── sim/metadrive, sim/scenarionet, sim/scenarios/   local only: simulator clones and converted scenes
 ├── .venv/                      main Python env (training)
 └── .venv_sim/                  Python 3.10 env for the simulator (uv)
 ```
@@ -123,14 +128,21 @@ Full model:
   last valid step).
 - `run_v2`: AdamW (lr 1e-3, wd 0.01), 1 epoch linear warmup then cosine to 1e-5 over all epochs, grad clip 1.0,
   dropout 0.1, best-val checkpoint, early stopping. Logs per epoch: losses, lr, val metrics (plan on and off
-  with `--ego-plan`), mode wins (flags a mode below 3%). After training: val and test once on the best
-  checkpoint, written to the manifest JSON next to the checkpoint.
+  with `--ego-plan`), mode wins (flags a mode below 3%). After training: val on the best checkpoint (test only with
+  `--eval-test`), written to the manifest JSON next to the checkpoint.
 
 ### `scripts/analyze_v2.py`
 Errors binned by the absolute endpoint angle (0–15°, 15–30°, 30–60°, 60°+, only endpoints ≥ 5 m away; same
 definition as the v1 report). Reads anchors and model options from the checkpoint and its manifest.
 `--examples out.png` instead plots 8 val examples (2 per bin) with lanes, agents, ground truth and the 6 modes.
 Note: the 60°+ bin also contains reversing agents (endpoint behind the target).
+Renamed from `run_turn_angle_analysis.py` (2026-11-07). Other modes:
+- `--follower-test DIR [--follower-group G]`: does the ego plan reach other agents? 20 val scenes, one agent per scene
+  of group G: `follower` (2–15 m behind the ego in its lane, should react) or a placebo group that should not react:
+  `lead` (2–30 m ahead), `oncoming`, `side` (next lane). Ego plans: real, brake to stop (−4 m/s²), accelerate
+  (+2 m/s²), plan off. Prints and saves predicted 6 s travel per plan, the **brake reaction ratio** (drop in travel /
+  drop needed to stay a car length behind the stopped ego) and the mean |travel change| (placebo measure).
+- `--cv-baseline JSON`: constant-velocity baseline vs the model on val.
 
 ### `scripts/make_anchors.py`
 `--method kmeans` (default): k-means (K = 6) on train endpoints -> `assets/anchors.npy`.
@@ -147,11 +159,14 @@ as 20 m segments + edges, the ego plan as `ego_future`); `to_model_inputs` turns
 `TrajectoryDatasetV2`. `add_connector_polygons` restores lane-connector polygons (ScenarioNet drops them) from the
 nuScenes map, which the lane selection needs. `sim_check.py match` checks all of this against the processed dataset.
 
-### `scripts/sim_check.py` (Phase D prep)
-`metadrive` (reset + 20 random steps, no rendering), `drive` (constant command for the ego while the others replay),
-`match` (adapter vs processed dataset on one mini scene, plus one live MetaDrive replay), `convert` (first 5 nuScenes-mini scenes -> ScenarioNet
-scenarios in `sim/scenarios/nuscenes_mini`), `replay` (replays one scene with the logged ego and traffic,
-saves a top-down PNG and GIF to `outputs/sim/`).
+### `scripts/sim_check.py` (simulator entry point)
+Smoke tests: `metadrive`, `drive`, `replay`, `match` (adapter vs processed dataset), `follow` (tracker check).
+`convert [--set mini|dev100|test150]`: nuScenes scenes -> ScenarioNet scenarios in `sim/scenarios/`.
+`plan --predictor cv wm`: closed-loop planners + the logged ego ("expert") on a scenario folder; `--reactive idm` for
+reactive road users, `--t0 S` to start at S seconds (the ego follows its log until then; metrics from t0),
+`--no-shadow` to skip the shadow WM in CV runs (no GPU needed).
+`evaluate`: the full CV-vs-WM evaluation with paired statistics (bootstrap CIs, Wilcoxon) and a report.
+`reactive-check`: validation of the reactive road users (mini + dev100). `showcase`: the README GIF.
 
 ## 4. v2 flags (`train_model.py --model v2`)
 
@@ -159,7 +174,13 @@ saves a top-down PNG and GIF to `outputs/sim/`).
 |---|---|---|
 | `--assign {predicted,anchor}` | predicted | Which mode is the winner in the loss: lowest-ADE predicted mode (winner-takes-all) or the anchor closest to the true endpoint. Anchor was clearly worse (val minADE₆ 1.84 vs 1.22). |
 | `--predict-agents N` | 1 | 1 = target only. 16 = target + 15 nearest neighbours (ego skipped); adds all-agent and moving-agent metrics. |
-| `--ego-plan` | off | Adds the ego's planned future as a scene token; dropped with p = 0.5 in training; val logged with plan on and off; checkpoint and early stopping use plan on. |
+| `--ego-plan` | off | Adds the ego's planned future as a scene token; val logged with plan on and off; checkpoint and early stopping use plan on. |
+| `--plan-drop P` | **0.5** | Probability of dropping the plan per training sample. The official v2 uses **0.2** (pass it explicitly); v3a used 0. |
+| `--plan-queries` | off | Gives each predicted agent the plan in its own frame (official v2: on). |
+| `--target-split` | off | Target-weighted loss for multi-agent models (official v2: on). |
+| `--patience-start N` | 0 | No early stopping before epoch N (official v2: 30). |
+| `--eval-test` | off | Also score the test split. Final evaluation / reproducibility checks only. |
+| `--eval-slots N` | | With `--evaluate-only`: agent metrics over the first N slots (compare different `--predict-agents`). |
 | `--soft-scores` | off | Score loss against `softmax(−ADE_k / 1 m)` instead of the one-hot winner. |
 | `--topology` | off | Adds successor / predecessor lane flags to the attention bias. Ablation only: no gain on val (seed 42). |
 | `--scale-inputs` | off | Divides input positions by 50 m. Not used in any reported run. |
@@ -176,15 +197,17 @@ Training env: `.venv` (main). Simulator env: `.venv_sim`. Run everything from th
 # Build the v2 data (once; ~17 min)
 .venv/bin/python scripts/build_processed_dataset.py --lane-tokens --workers 6
 
-# Baseline v2 (target only)
-.venv/bin/python scripts/train_model.py --model v2 --epochs 60 --seed 42 --checkpoint-dir checkpoints/v2_predicted
+# Official v2 (d_rerun)
+FLAGS="--model v2 --predict-agents 16 --ego-plan --target-split --plan-queries --plan-drop 0.2"
+.venv/bin/python scripts/train_model.py $FLAGS --epochs 60 --patience 15 --patience-start 30 --seed 42 \
+    --checkpoint-dir checkpoints/v2_d_rerun
 
-# Blocks 1 + 2 + 3 (multi-agent, ego plan, soft scores)
-.venv/bin/python scripts/train_model.py --model v2 --predict-agents 16 --ego-plan --soft-scores \
-    --epochs 60 --seed 42 --checkpoint-dir checkpoints/v2_b123
+# Evaluate a checkpoint on val (model flags needed; add --eval-test only for the final evaluation)
+.venv/bin/python scripts/train_model.py $FLAGS --evaluate-only --checkpoint checkpoints/v2_d_rerun/v2_seed42_best.pth
 
-# Evaluate a checkpoint on val (add --eval-test only for the final evaluation)
-.venv/bin/python scripts/train_model.py --model v2 --evaluate-only --checkpoint checkpoints/v2_predicted/v2_seed42_best.pth
+# Follower test and a placebo group (val)
+.venv/bin/python scripts/analyze_v2.py --model v2 --checkpoint checkpoints/v2_d_rerun/v2_seed42_best.pth \
+    --follower-test outputs/run_d_rerun --follower-group follower
 
 # Turn-angle bins on val, and an example plot
 .venv/bin/python scripts/analyze_v2.py --model v2 --checkpoint checkpoints/v2_predicted/v2_seed42_best.pth \
@@ -210,7 +233,9 @@ Simulator env setup (already done): `uv venv --python 3.10 .venv_sim`, then with
 
 | What | Where |
 |---|---|
-| Settings and results table (val rows; test row filled at the end) | `report/v2_training_plan.xlsx` |
+| Every run, settings and results; pre-registrations | `docs/EXPERIMENTS.md` |
+| Closed-loop reports | `outputs/sim/<run>/report.md`, final: `outputs/sim/test150_final_report.md` |
+| v3 checks (follower / placebo / val) | `outputs/v3_checks/`, references `outputs/v3a_prereg/` |
 | Training logs, one per run | `outputs/train_v2_<run>_seed<N>.log` |
 | Best checkpoint + manifest (settings, best / stopped epoch, val and test metrics) | `checkpoints/<run>/v2_seed<N>_best.pth` and `.json` |
 | Turn-angle bins (val) | `outputs/turn_bins_v2_val_seed*.json`, `outputs/turn_bins_v2topo_val_seed42.json` |
@@ -219,14 +244,13 @@ Simulator env setup (already done): `uv venv --python 3.10 .venv_sim`, then with
 | Simulator replay | `outputs/sim/replay_scenario0.png`, `.gif` |
 | Dataset build log | `outputs/build_v2.log` |
 
-Runs so far (checkpoint folder: what it is):
-`v2_anchor` (anchor assignment, stopped early), `v2_predicted` (baseline, seeds 42 / 123 / 2026),
-`v2_topology` (topology ablation), `v2_b123` and `v2_b12` (blocks 1+2+3 and 1+2, seed 42),
-`v2_check` and `v2_multi_check` (5-epoch checks).
-The manifest JSONs also hold test metrics: don't read them before the final evaluation.
+Checkpoint folders follow the run names in docs/EXPERIMENTS.md (e.g. `v2_d_rerun`, `v2_d_seed123`, `v3a`,
+`v3a_seed123`, `v2_d_rerun_current`). Older manifests (before `--eval-test`) also hold test metrics: don't use them
+for any choice.
 
 ## 7. Things to know
 
-- GPU training is not bit-reproducible: the same seed gives slightly different curves. Report the spread over seeds.
+- GPU training is not bit-reproducible: the same seed gives different results, and across machines (laptop torch 2.15
+  vs pod torch 2.8) d_rerun differed by 0.025 m val minADE₆, more than the 3-seed spread (0.006). Compare over seeds.
 - Miss rate here = minFDE₆ > 2 m at the endpoint (Argoverse style), not nuScenes' max-over-time definition.
 - `predict_agents=1` with every flag off reproduces the original v2 outputs exactly, so old checkpoints still load.

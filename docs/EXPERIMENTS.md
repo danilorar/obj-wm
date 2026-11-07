@@ -249,12 +249,21 @@ test**; `test_v3.json` stays unused.
   vs 2.15, non-deterministic GPU kernels). So run-to-run noise is ~0.025 m, larger than the 3-seed SD (0.006)
   suggested, and the "shared ~0.035 m v3 gain" is within that noise. The 0.02 m val margin is tight for this noise.
 
-## Next steps (handoff, 2026-11-07, after the final test)
-1. Done: final test (replay v4 + pre-registered reactive run). Decision: WM is safer, on the close-call co-primary
-   endpoint; at fault shows no detectable difference (1 event). Report: `outputs/sim/test150_final_report.md`.
-2. Done after the test: `LogPathAgent.eligible` now also requires the ScenarioNet type VEHICLE (no simulation change).
-3. Open: reactive stage 2 (swept ego footprint, merge anticipation); the WM's follower reaction is too weak; coverage
-   beyond 16 slots.
+## State and next steps (handoff, 2026-11-07, end of the v3 round)
+- **Official model: v2_d_rerun** (`checkpoints/v2_d_rerun/v2_seed42_best.pth`). Final closed-loop test done
+  (test150 replay v4 + pre-registered reactive run): WM is safer on the close-call co-primary endpoint; at-fault shows
+  no detectable difference (1 event). Report: `outputs/sim/test150_final_report.md`.
+- **v3 round closed: no confirmed improvement.** v3b / v3c fail the follower check; v3a reacts more strongly on all
+  seeds (brake ratio mean 0.571) but seed 2026 fails placebo and val (amendment 3). No closed-loop test; `test_v3.json`
+  is unused and stays reserved.
+- **Noise:** same seed and flags differ by ~0.025 m val minADE₆ between laptop and pod (d_rerun 1.243 vs 1.268), more
+  than the 3-seed spread. Future val thresholds should use several seeds per variant, on one machine.
+- **Data scale closed:** WOMD and AV2 have fewer strong ego–follower braking events per hour than nuScenes (NO-GO).
+- Branch structure: final branch `v3a-no-plan-dropout` (to become `main` of a new repo); tags `v1-gnn`, `v3b-xattn`,
+  `v3c-stand-in`, `womd-nogo`.
+- Open: a follower reaction that is physically plausible (even v3a leaves 18–19 of 20 followers driving into a stopped
+  ego); reactive stage 2 (swept ego footprint, merge anticipation); coverage beyond 16 slots; planner hesitation
+  (stop-go at junctions, seen in a demo selection on dev100).
 
 ## WOMD / Argoverse 2 feasibility (branch womd-feasibility, 2026-11-07; code `scripts/womd.py` on tag `womd-nogo`)
 - Feasibility: `docs/womd_feasibility.md`. Decisions recorded there; `.venv_womd` built in ~/Desktop/wm.

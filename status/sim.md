@@ -3,20 +3,24 @@
 Updated 2026-11-07.
 
 ## Done
-- v3a confirmation (amendment 3): NOT confirmed (seed 2026 fails placebo 3.18 > 2.9 m and val 1.267 > 1.259); mean brake
-  ratio 0.571. No closed-loop test. Control d_rerun retrain (pod): 1.268 vs 1.243.
-- Pod checkpoints + logs copied back, checksums verified: `checkpoints/{v3a_seed123,v3a_seed2026,v2_d_rerun_current}`,
-  `outputs/pod/v3seeds/`.
+- v3a not confirmed; v2 d_rerun stays the official model (EXPERIMENTS.md "v3a confirmation", handoff updated).
+- Cleanup (approved plan) executed 2026-11-07: remote URL -> gnn-trajectory; pod-runs merged; WOMD doc + NO-GO
+  result + womd_test300.json brought in; tags v1-gnn (pushed to the shared repo), v3b-xattn, v3c-stand-in, womd-nogo
+  (local, for the new repo); local branches pod-runs, v3b-plan-xattn, v3c-stand-in-ego, womd-feasibility deleted
+  (still on the remote); worktrees ../wm-pod, ../wm-womd removed; deleted (git-ignored) data/womd,
+  checkpoints/v2_check, v2_multi_check, 92 superseded test150/v2/v3 GIFs (JSON kept); data/av2 did not exist;
+  legacy/ + analyze_v2.py rename.
+- Docs: CLAUDE.md, CODE_GUIDE.md, EXPERIMENTS.md handoff, final README (Examples section is a placeholder).
 
 ## Running
 - Nothing.
 
 ## Needs
-- Stop the pod. Network volume: `/workspace/wm` 3.5 GB, `wm-v3b` / `wm-v3c` / `wm-v3seeds` ~90 MB (all copied);
-  `hf_cache` 6.3 GB and `detector_failure` 7.8 GB are not from this project.
-- Go for the approved cleanup (below).
+- Demo agent: paste the Examples snippet into README.md (section "Examples").
+- Danilo: create the new repo; then push v3a-no-plan-dropout as its main, plus the tags.
+- Pod: delete the network-volume folders in RunPod Storage if not done.
 
-## Cleanup plan: APPROVED 2026-11-07 with changes (execute only after the pod results are reported)
+## Cleanup plan: APPROVED 2026-11-07 with changes (DONE 2026-11-07)
 1. Old repo `gnn_trajectory` is shared: no PR into its `main`, no deleting teammates' branches (Ashok, xieyanran,
    results/attack-baselines-and-modes). Only add tag `v1-gnn` there (on `origin/feature/trajectory-prediction`).
 2. Final branch = `v3a-no-plan-dropout` after merging `pod-runs` and the womd-feasibility docs (feasibility study,

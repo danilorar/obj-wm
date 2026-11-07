@@ -2,7 +2,9 @@
 
 A scene transformer, trained on [nuScenes](https://www.nuscenes.org/nuscenes), predicts where nearby road users will
 go in the next 6 s, given the plan our car is considering. A planner in [MetaDrive](https://github.com/metadriverse/metadrive)
-uses those predictions to pick a safe plan every 0.5 s.
+uses those predictions to pick a safe plan every 0.5 s. On 146 held-out test scenes, this world-model planner spends
+less time close to other road users than the same planner with constant-velocity predictions, with the same progress.
+Three attempts to make the model react more strongly to our plan (v3) were not confirmed.
 
 ### Same street scene, two planners
 
@@ -23,7 +25,13 @@ the car slows down and passes. (nuScenes mini scene-1094, a development scene; o
   <img src="docs/architecture.png" width="960" alt="Model: agent, lane and ego-plan encoders, scene transformer, anchor decoder with 6 paths and probabilities for 16 agents">
 </p>
 
-## Results
+## Examples
+
+<!-- Placeholder: the demo grid / GIF snippet comes from status/demo.md on branch demo-3d (demo agent). -->
+
+*Coming soon.*
+
+## Results (v2, the official model)
 
 On **146 held-out test scenes**, the same planner is run with constant-velocity predictions (CV) and with the world
 model (WM). Other road users either replay the log or react to our car.
@@ -38,8 +46,10 @@ model (WM). Other road users either replay the log or react to our car.
 The decision rule was pre-registered. **The world-model planner is safer:** it spends 4.7 percentage points less time
 within 1 m of others (97.5% CI [−8.0, −2.1] pp, p = 1e-4), with the same progress.
 
-Open-loop prediction error (val, target minADE₆) is 1.239 ± 0.006 m over 3 seeds. Every run is listed in
-[docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
+Open-loop prediction error (val, target minADE₆) is **1.239 ± 0.006 m** over 3 seeds. Training the same seed with the
+same flags on two machines (laptop vs cloud GPU, different torch versions) gave 1.243 vs 1.268 m: **noise between
+machines (~0.025 m) is larger than the spread over seeds**, so small val differences need several seeds to mean
+anything. Every run is listed in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
 
 <details>
 <summary>More figures</summary>
@@ -54,6 +64,31 @@ Open-loop prediction error (val, target minADE₆) is 1.239 ± 0.006 m over 3 se
 
 </details>
 
+## v3 ablations: a stronger reaction to our plan? (not confirmed)
+
+The v2 model reacts to our plan in the right direction, but too weakly: if we brake to a stop, the car behind is still
+predicted to drive into us. Three single changes were tested against criteria written down before training
+(open loop, val only):
+- **Brake ratio:** how much of the needed slow-down of the following car is predicted (1 = enough to stay behind us).
+- **Placebo:** how much cars that should *not* react (ahead, oncoming, next lane) change when only our plan changes.
+- **Val accuracy:** target minADE₆ with the plan on.
+
+| Model | Change | Brake ratio (≥ 0.53) | Placebo (≤ 2.9 m) | Val minADE₆ (≤ 1.259 m) | Result |
+|---|---|---|---|---|---|
+| v2 (3 seeds) | – | 0.30 – 0.41 | 1.44 – 2.38 | 1.232 – 1.243 | reference |
+| v3a (3 seeds) | plan never dropped in training | 0.545 / 0.558 / 0.609 | 2.40 / 2.42 / **3.18** | 1.205 / 1.235 / **1.267** | **not confirmed** (seed 2026 fails) |
+| v3b | decoder cross-attention to the plan | 0.408 | 2.02 | 1.206 | fails the brake check |
+| v3c | other cars stand in as "ego" in training | 0.382 | 1.90 | 1.208 | fails the brake check |
+
+What it shows: always giving the model our plan (v3a) makes the reaction to it consistently stronger, but it also
+leaks into cars that should not react, and accuracy does not improve on average. Even the strongest v3a seed leaves
+18 of 20 following cars driving into a stopped ego. So v2 stays the official model and no v3 closed-loop test was run.
+
+**More data?** Waymo Open Motion (WOMD) and Argoverse 2 were checked first for how often the ego brakes hard with a car
+close behind, the situation that teaches this reaction. Both have fewer such events per hour than nuScenes (WOMD
+11.1, AV2 6.5 vs nuScenes 15.4; the pre-set gate was 2× nuScenes), so switching datasets would not help
+([docs/womd_feasibility.md](docs/womd_feasibility.md)).
+
 ## Limitations
 
 - **Few at-fault events.** There is only 1 at-fault collision in 146 scenes, so the safety result rests on the
@@ -62,7 +97,20 @@ Open-loop prediction error (val, target minADE₆) is 1.239 ± 0.006 m over 3 se
 - **Limited coverage.** The model predicts 16 road users; the remaining ~15% nearby fall back to constant velocity.
 - **Simple reactive road users.** Only cars and trucks react, there is no merge anticipation, and pedestrians and
   cyclists replay the log.
-- **Weak reaction to our plan.** The predicted reaction to our plan is weaker than real drivers'.
+- **Weak reaction to our plan.** The predicted reaction to our plan is weaker than real drivers' (see v3).
+- **Planner hesitation.** The WM planner can stop and go: in one development scene (dev100 scene-0019) it stopped for
+  about 4 s in the middle of a junction while the logged driver kept moving. Being cautious lowers close calls but can
+  cost smoothness; the progress measure does not capture this.
+- **Small open-loop differences are noisy.** See the cross-machine note above.
+
+## Future work
+
+- A physically plausible reaction to our plan: losses or data that teach "stay behind a braking car", checked with
+  the same follower / placebo test.
+- Reactive road users, stage 2: swept ego footprint, merge anticipation, reacting pedestrians and cyclists.
+- More predicted road users than 16 (tested with 32 / 63 slots, see EXPERIMENTS.md), and a cost term against
+  stop-and-go.
+- Several seeds per variant on one machine before any val threshold is applied.
 
 <details>
 <summary>Reproduce</summary>
@@ -80,14 +128,16 @@ VIRTUAL_ENV=.venv_sim uv pip install -e sim/metadrive -e sim/scenarionet "nuscen
 VIRTUAL_ENV=.venv_sim uv pip install torch --index-url https://download.pytorch.org/whl/cu132
 .venv_sim/bin/python -m metadrive.pull_asset
 
-# dataset (~20 min) and training
+# dataset (~20 min) and training of the official v2 model
 .venv/bin/python scripts/build_processed_dataset.py --lane-tokens --workers 6
 FLAGS="--model v2 --predict-agents 16 --ego-plan --target-split --plan-queries --plan-drop 0.2"
 .venv/bin/python scripts/train_model.py $FLAGS --assign predicted --epochs 60 --patience 15 --patience-start 30 \
     --batch-size 64 --lr 0.001 --seed 42 --checkpoint-dir checkpoints/v2_d_rerun
 
-# validation
+# validation (expect 1.243 m with plan on for the released checkpoint), and the follower test
 .venv/bin/python scripts/train_model.py $FLAGS --evaluate-only --checkpoint checkpoints/v2_d_rerun/v2_seed42_best.pth
+.venv/bin/python scripts/analyze_v2.py --model v2 --checkpoint checkpoints/v2_d_rerun/v2_seed42_best.pth \
+    --follower-test outputs/run_d_rerun
 
 # closed loop: convert scenes, check on the mini dev scenes, then the final test (replay and reactive)
 .venv_sim/bin/python scripts/sim_check.py convert --scenes 10
@@ -98,13 +148,23 @@ FLAGS="--model v2 --predict-agents 16 --ego-plan --target-split --plan-queries -
     --out outputs/sim/test150_reactive
 ```
 
+**Flags and defaults.** Pass `--plan-drop 0.2` explicitly: the default is 0.5, which older runs in EXPERIMENTS.md
+rely on. With this code the released v2 checkpoint evaluates to exactly 1.243 m (plan on) / 1.281 m (plan off). The
+v3b / v3c options (`--plan-xattn`, `--stand-in-ego`) are not part of this code; they live on tags `v3b-xattn` and
+`v3c-stand-in`. v3a is the same code with `--plan-drop 0`.
+
 </details>
 
 ## Repository
 
 - `utils/`: the dataset and the model (`models_v2.py`).
-- `scripts/`: data building, training, open-loop analysis and the simulator entry point (`sim_check.py`).
-- `sim/`: the planner, the simulator-to-model adapter and the reactive road users.
+- `scripts/`: data building, training, open-loop analysis (`analyze_v2.py`) and the simulator entry point
+  (`sim_check.py`).
+- `sim/`: the planner, the simulator-to-model adapter and the reactive road users; `sim/scene_lists/` holds the scene
+  lists (two reserved test sets that were never run).
+- `docs/`: [code guide](docs/CODE_GUIDE.md), [every run and pre-registration](docs/EXPERIMENTS.md), the reactive-agent
+  design and the WOMD feasibility study.
+- `legacy/`, `plots/`: v1-era scripts.
 
-Details are in [docs/CODE_GUIDE.md](docs/CODE_GUIDE.md). The earlier GNN model (v1, a final project for SSY340 at
-Chalmers) is on branch `feature/trajectory-prediction`.
+Tags: `v1-gnn` (the earlier GNN model, a final project for SSY340 at Chalmers), `v3b-xattn`, `v3c-stand-in`,
+`womd-nogo`.
