@@ -217,6 +217,17 @@ cause. The common cause of the gain is **not explained** (v3b / v3c also improve
 18 of 20 followers still do not stay behind the stopped ego (the reaction is stronger but still too weak).
 No closed-loop test has been run.
 
+### Amendment 3 (recorded 2026-11-07, before the v3a seed runs): confirmation rule for v3a
+- v3a is **CONFIRMED** only if, over seeds 42 / 123 / 2026 (same flags, `--seed` only, no `--eval-test`):
+  1. the **3-seed mean** follower brake ratio is ≥ 0.53, and
+  2. **each seed** passes the placebo check (mean ≤ 2.9 m; no group more than 1 m above its worst v2 seed: lead ≤ 4.2,
+     oncoming ≤ 2.2, side ≤ 4.2 m), and
+  3. **each seed** passes val (target minADE₆ with the plan on ≤ 1.259 m).
+- Only if confirmed: one closed-loop test on `sim/scene_lists/test_v3.json`, v3a (seed 42) vs v2_d_rerun. If not confirmed: no
+  closed-loop test.
+- Control run, same time: d_rerun flags unchanged, seed 42, current code (pod). It explains the shared ~0.035 m v3 val
+  gain if it also reaches ~1.21 m; it is not a selection candidate.
+
 ## Next steps (handoff, 2026-11-07, after the final test)
 1. Done: final test (replay v4 + pre-registered reactive run). Decision: WM is safer, on the close-call co-primary
    endpoint; at fault shows no detectable difference (1 event). Report: `outputs/sim/test150_final_report.md`.
