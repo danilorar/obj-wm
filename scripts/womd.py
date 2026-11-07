@@ -53,6 +53,14 @@ def _track_arrays(track):
 
 
 # ---------------------------------------------------------------- test IDs
+def _sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 def cmd_test_ids(args):
     files = [Path(f) for f in args.files]
     idx = sorted(int(f.name.split("-")[1]) for f in files)
@@ -78,7 +86,9 @@ def cmd_test_ids(args):
         "rule": "WOMD validation files 140-149; SDC valid at all 91 steps and path length >= 10 m over steps 20-90; "
                 "150 with SDC in objects_of_interest + rest random (numpy default_rng(0), IDs sorted); "
                 "fill from the rest if fewer than 150 interactive",
+        "source": args.source,
         "files": sorted(f.name for f in files),
+        "file_sha256": {f.name: _sha256(f) for f in sorted(files)},
         "counts": {"scenarios_read": n_all, "eligible_interactive": len(inter), "eligible_other": len(rest),
                    "picked_interactive": len(pick_i), "picked_other": len(pick_r)},
         "interactive_ids": pick_i,
@@ -210,6 +220,7 @@ def main():
     t = sub.add_parser("test-ids")
     t.add_argument("--files", nargs="+", required=True)
     t.add_argument("--out", required=True)
+    t.add_argument("--source", default="gs://waymo_open_dataset_motion_v_1_3_1/uncompressed/scenario/validation")
     f = sub.add_parser("follower")
     g = f.add_mutually_exclusive_group(required=True)
     g.add_argument("--womd", nargs="+", help="validation tfrecords (never files 140-149)")

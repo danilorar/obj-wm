@@ -146,3 +146,7 @@ Check (d): the logged ego driven 10% slower along its logged route, agents in `-
   Waiting for Danilo to download WOMD validation files 00000 and 00140–00149 into ~/Desktop/wm/data/womd/validation/.
 - Next: (1) `test-ids` on files 140–149 -> commit `sim/scene_lists/womd_test300.json` + sha256; (2) only then
   `follower --womd` on file 00000; (3) go / no-go for the full download.
+- **womd_test300 fixed (2026-11-07, before step 0 and before any training):** `sim/scene_lists/womd_test300.json`,
+  sha256 `9ce970748867e6193f5064e5035e336d80d8c36d9a89af27bcb573468b32cce8`. Source: v1.3.1
+  `uncompressed/scenario/validation` files 140–149 (sha256 of each file is in the JSON). 2,927 scenarios read, 1,827
+  eligible (223 with the SDC in objects_of_interest); picked 150 interactive + 150 others (rng seed 0).
