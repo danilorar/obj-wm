@@ -152,5 +152,8 @@ Check (d): the logged ego driven 10% slower along its logged route, agents in `-
   ≥ 10 events) not met; formally "inconclusive", but ratio ≥ 2 is rejected at p = 0.02. Recommendation: no-go for the
   full download as planned. Base rates (reported only): follower hard-brake 51% vs 6.5% (nuScenes) when the ego brakes
   vs not; noise floor 4.0% in both. Details: docs/womd_feasibility.md "Step 0 results".
-- Next: Danilo decides (a) stop WOMD, (b) 2 more files to close the pre-registered rule, or (c) a redesigned v3
-  (pseudo-ego from agent pairs, or nuScenes plan-dropout ablation first).
+- **Step 0 final (files 00000–00002, same code and gate): NO-GO.** WOMD 11.1 strong follower events / h (9 events,
+  95% CI 5.1–21.0) vs nuScenes 15.4; the gate needed ≥ 30.8 / h and ≥ 10 events. Ratio ≥ 2 rejected at p = 0.002.
+  WOMD full download and v3-on-WOMD as designed are stopped.
+- Future work: (c) agent–agent stand-in ego on WOMD (needs its own spec); nuScenes ego-plan no-dropout ablation
+  as the cheaper first test. See docs/womd_feasibility.md "Future work".

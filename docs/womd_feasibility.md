@@ -216,3 +216,27 @@ noise floor is the same in both datasets (4.0%). The concern raised earlier is w
 **Why WOMD is lower:** WOMD's interactions are mined between *agents*, not around the ego. The Waymo SDC brakes hard
 3× less often than the nuScenes ego (30 vs 88 episodes / h), and it is stationary more often (0.26 ego-moving hours
 in 286 × 9 s scenes ≈ 37% of the time).
+
+### Step 0 final (2026-11-07): files 00000–00002, same code and gate → **NO-GO**
+
+| Dataset | Scenes | Ego-moving h | Ego brake episodes / h | With follower | Strong events | **R (strong / h)** | 95% CI (Poisson) |
+|---|---|---|---|---|---|---|---|
+| nuScenes official train | 700 | 2.40 | 88.2 | 72 | 37 | **15.4** | 10.8 – 21.2 |
+| WOMD val 00000–00002 | 879 | 0.81 | 40.6 | 11 | 9 | **11.1** | 5.1 – 21.0 |
+
+- Gate: R_WOMD ≥ 30.8 / h and ≥ 10 events. **Not met** (11.1 / h, 9 events). The rule's extra-files step is now
+  used up, so the decision is final: **no-go** for the full WOMD download and the v3-on-WOMD plan as designed.
+- If WOMD's true rate were 2 × nuScenes, WOMD would get ~18.5 of the 46 combined events; it got 9 (exact
+  conditional binomial **p = 0.002**). The 95% CI upper bound for WOMD (21.0 / h) is below the 30.8 threshold.
+- Base rates (reported only): P(follower brakes hard | ego brakes) 0.82 (31 / 38) vs 0.075 when not; vehicle noise
+  floor 0.041 (nuScenes 0.51 / 0.065 / 0.040). The reaction is just as clear in WOMD, but the ego rarely creates it.
+- Raw output: `outputs/womd_step0/womd_val00000-00002.json` (local).
+
+## Future work
+- **(c) Agent–agent stand-in ego.** WOMD's interactions are mined between agents, not around the SDC. Re-centre
+  training samples on another vehicle that has a leader–follower partner. Treat that vehicle as the "ego": its
+  logged future becomes the plan token, and the follower is the target to predict. This would turn WOMD's many
+  agent–agent interactions into ego-plan training data. It needs its own spec (sample selection rule, how to
+  handle the real SDC, a check that the follower test still measures the right thing). Not planned yet.
+- Cheaper first test of the follower weakness, on nuScenes: retrain with the ego-plan token never dropped and rerun
+  the follower test.
