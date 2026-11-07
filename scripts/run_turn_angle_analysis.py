@@ -95,6 +95,9 @@ def main():
     parser.add_argument("--follower-test", type=Path, metavar="DIR",
                         help="v2 ego-plan model: follower test, JSON + plot of 2 examples into DIR, then exit")
     parser.add_argument("--followers", type=int, default=20, help="number of scenes for --follower-test")
+    parser.add_argument("--follower-group", choices=("follower", "lead", "oncoming", "side"), default="follower",
+                        help="--follower-test agent group: the follower (should react) or a placebo group that should "
+                             "not react to the ego plan: lead (ahead, same lane), oncoming, side (other lane)")
     parser.add_argument("--cv-baseline", type=Path, metavar="JSON",
                         help="v2 multi-agent model: constant-velocity baseline vs the model, saved to JSON, then exit")
     parser.add_argument("--all-slots", action="store_true",
@@ -438,6 +441,16 @@ def retime_plan(ego_now, heading, future, v0, accel, steps=12, dt=0.5):
     return out
 
 
+# Agent groups for --follower-test, in the ego frame (x forward, y left, dth = heading difference in deg).
+GROUPS = {
+    "follower": lambda x, y, dth: -15 <= x <= -2 and abs(y) <= 1.5 and abs(dth) <= 20,    # should react
+    "lead": lambda x, y, dth: 2 <= x <= 30 and abs(y) <= 1.5 and abs(dth) <= 20,          # placebo: ahead, same lane
+    "oncoming": lambda x, y, dth: 0 <= x <= 40 and 1.5 < abs(y) <= 8 and abs(dth) >= 150,  # placebo: other direction
+    "side": lambda x, y, dth: -15 <= x <= 15 and 2.5 <= abs(y) <= 6 and abs(dth) <= 20,   # placebo: next lane
+}
+CAR_LENGTH = 4.5   # m, follower must stay at least one car length (centre to centre) behind the stopped ego
+
+
 def follower_test(args, device, model, brake=-4.0, accel=2.0):
     """Does the ego plan reach a car following the ego?
 
@@ -475,7 +488,7 @@ def follower_test(args, device, model, brake=-4.0, accel=2.0):
             d = pose[slot, :2] - ego[:2]
             x_rel, y_rel = c * d[0] + s_ * d[1], -s_ * d[0] + c * d[1]
             dth = np.degrees(np.angle(np.exp(1j * (pose[slot, 2] - ego[2]))))
-            if -15 <= x_rel <= -2 and abs(y_rel) <= 1.5 and abs(dth) <= 20:
+            if GROUPS[args.follower_group](x_rel, y_rel, dth):
                 found.append((idx, j, slot, v0, float(x_rel)))
                 scenes.add(sample["scene_token"])
                 break
@@ -506,6 +519,14 @@ def follower_test(args, device, model, brake=-4.0, accel=2.0):
             traj, p = preds[name]
             row[f"travel_{name}"] = float((np.linalg.norm(traj[:, -1] - now, axis=-1) * p).sum())
             row[f"shift_{name}"] = float((np.linalg.norm(traj - traj_real, axis=-1).mean(-1) * p_real).sum())
+        # Brake reaction ratio: predicted drop in travel / drop needed to stay a car length behind the braking ego
+        # (denominator floored at 2 m, ratio clipped to [-0.5, 1.5]); placebo groups: mean |travel change|.
+        ego_brake = float(np.linalg.norm(variants["brake"][-1, :2] - ego_now))
+        needed = row["travel_real"] - (ego_brake - gap - CAR_LENGTH)
+        row["brake_ratio"] = float(np.clip((row["travel_real"] - row["travel_brake"]) / max(needed, 2.0), -0.5, 1.5))
+        row["stays_behind"] = bool(row["travel_brake"] <= ego_brake - gap - CAR_LENGTH)
+        row["abs_change"] = 0.5 * (abs(row["travel_brake"] - row["travel_real"])
+                                   + abs(row["travel_accel"] - row["travel_real"]))
         rows.append(row)
         keep.append((item, slot, j, variants, preds))
 
@@ -518,12 +539,19 @@ def follower_test(args, device, model, brake=-4.0, accel=2.0):
     ego_travel = {name: float(np.mean([np.linalg.norm(k[3][name][-1, :2] - k[0]['agent_hist'][1, -1, :2].numpy())
                                        for k in keep])) for name in ("real", "brake", "accel")}
     print(" ego plan travel at 6 s: " + ", ".join(f"{k} {v:.1f} m" for k, v in ego_travel.items()))
+    reaction = {"group": args.follower_group, "n": len(rows),
+                "brake_ratio_mean": float(np.mean([r["brake_ratio"] for r in rows])),
+                "stays_behind": int(sum(r["stays_behind"] for r in rows)),
+                "abs_change_mean_m": float(np.mean([r["abs_change"] for r in rows]))}
+    print(f" {args.follower_group}: brake reaction ratio {reaction['brake_ratio_mean']:.3f}, stays behind "
+          f"{reaction['stays_behind']}/{len(rows)}, mean |travel change| (brake, accel) {reaction['abs_change_mean_m']:.2f} m")
 
     out = args.follower_test
     out.mkdir(parents=True, exist_ok=True)
-    (out / "follower_test.json").write_text(json.dumps(
+    stem = "follower_test" if args.follower_group == "follower" else f"follower_test_{args.follower_group}"
+    (out / f"{stem}.json").write_text(json.dumps(
         {"checkpoint": str(args.checkpoint), "dataset": str(args.dataset), "brake_mps2": brake, "accel_mps2": accel,
-         "summary": summary, "ego_plan_travel_6s_m": ego_travel, "followers": rows}, indent=2) + "\n")
+         "summary": summary, "reaction": reaction, "ego_plan_travel_6s_m": ego_travel, "followers": rows}, indent=2) + "\n")
 
     colors = {"real": "tab:green", "brake": "tab:red", "accel": "tab:blue", "off": "0.5"}
     fig, axes = plt.subplots(1, 2, figsize=(14, 7))
@@ -560,8 +588,8 @@ def follower_test(args, device, model, brake=-4.0, accel=2.0):
                          "follower ground truth"], loc="lower center", ncol=4, fontsize=9)
     fig.suptitle("Follower test: top-3 predicted modes of the car behind the ego under three ego plans")
     fig.tight_layout(rect=(0, 0.07, 1, 0.96))
-    fig.savefig(out / "follower_test.png", dpi=120)
-    print(f"saved {out / 'follower_test.json'} and {out / 'follower_test.png'}")
+    fig.savefig(out / f"{stem}.png", dpi=120)
+    print(f"saved {out / (stem + '.json')} and {out / (stem + '.png')}")
 
 
 def cv_baseline(args, device, model):

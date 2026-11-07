@@ -28,6 +28,7 @@ Checkpoints: `checkpoints/<run>/v2_seed<N>_best.pth` + `.json`; logs: `outputs/t
 | **Model selection** | 2026-11-06 | Val, rule pre-stated (Amendment 1 (2)) | `train_model.py --evaluate-only --eval-slots 16` | – | – | **d_rerun chosen**: best val moving-agent top-1 ADE (2.462 vs e32 2.520, e63 2.606); all pass the follower direction check |
 | v2_d_seed123 | 2026-11-07 (pod) | (d) rerun, seed 123 | d_rerun flags + `--seed 123` (no `--eval-test`; torch 2.8.0+cu128) | 34 / 49 | 1.232 (plan off 1.260) | Variance seeds for d_rerun; not used for selection |
 | v2_d_seed2026 | 2026-11-07 (pod) | (d) rerun, seed 2026 | d_rerun flags + `--seed 2026` (no `--eval-test`; torch 2.8.0+cu128) | 21 / 36 | 1.241 (plan off 1.271) | Variance seeds for d_rerun; not used for selection. 3 seeds (42/123/2026): 1.239 ± 0.006 (plan off 1.271 ± 0.011) |
+| v3a | 2026-11-07 | Plan always on (pre-registered) | d_rerun flags with `--plan-drop 0` (no `--eval-test`) | running | – | One change vs d_rerun; judged by the v3a pre-registration |
 
 Notes
 - Follower test (val, 20 scenes, 6 s travel real / brake / accel): d_rerun 30.7 / 25.3 / 36.7 m, e32 29.5 / 23.3 / 35.5 m,
@@ -132,6 +133,60 @@ Check (d): the logged ego driven 10% slower along its logged route, agents in `-
 - 0 rear-ends by an **eligible** reactive agent that had the ego as its leader.
 - 0 new agent–agent overlaps (not in the log), or each one explained and shown not to be caused by the reaction rule.
 - Max agent deceleration ≤ 6 m/s² (b_max) is allowed. The number of scenes that hit the cap is reported as a limitation.
+
+## Pre-registration: v3a "plan always on" (recorded 2026-11-07, before training)
+**Question:** does the WM react more strongly to the ego plan if the plan is never dropped in training?
+**Change (one only):** v2_d_rerun flags with `--plan-drop 0` instead of 0.2. Seed 42, branch `v3a-no-plan-dropout`.
+No `--eval-test`; no test split and no test scenes are used. 1 seed = preliminary result.
+
+**Metrics** (open loop, `run_turn_angle_analysis.py --follower-test DIR --follower-group G`, the same 20 val scenes as
+before, ego plan re-timed to brake to a stop at −4 m/s² or accelerate at +2 m/s²):
+- *Brake reaction ratio* (followers 2–15 m behind the ego in its lane): (predicted travel at 6 s with the real plan −
+  with the brake plan) / (drop needed to stay one car length, 4.5 m centre to centre, behind the stopped ego). The
+  denominator is floored at 2 m and each ratio is clipped to [−0.5, 1.5]. Mean over the 20 followers; 1 = fully plausible.
+- *Placebo |change|* (agents that should not react: `lead` 2–30 m ahead in the ego lane, `oncoming` heading
+  difference ≥ 150°, `side` next lane 2.5–6 m lateral): mean over agents of ½(|travel brake − real| + |travel accel −
+  real|) at 6 s, averaged over the three groups.
+
+**Reference: the three v2 d seeds (val, computed 2026-11-07 before v3a exists; `outputs/v3a_prereg/`)**
+
+| v2 seed | follower brake ratio | stays behind (brake) | lead | oncoming | side | placebo mean |
+|---|---|---|---|---|---|---|
+| 42 (d_rerun) | 0.351 | 1/20 | 3.00 | 0.91 | 3.23 | 2.38 m |
+| 123 | 0.414 | 0/20 | 3.16 | 0.63 | 3.11 | 2.30 m |
+| 2026 | 0.302 | 1/20 | 1.87 | 1.17 | 1.27 | 1.44 m |
+| mean ± SD | 0.356 ± 0.056 | – | – | – | – | 2.04 ± 0.52 m |
+
+**Pass criteria (all three must hold for "v3a is better"):**
+1. **Main:** follower brake ratio ≥ **0.53** (= v2 mean 0.356 + max(0.15, 3 SD = 0.17)), and the direction check
+   still passes (brake < real < accel in mean follower travel).
+2. **Placebo:** placebo mean ≤ **2.9 m** (= highest v2 seed 2.38 + 0.5 m), and no single group above its highest v2
+   seed + 1.0 m (lead ≤ 4.2, oncoming ≤ 2.2, side ≤ 4.2 m).
+3. **Accuracy:** val target minADE₆ with the plan on ≤ **1.259 m** (3-seed v2 1.239 + 0.02). Plan-off numbers are
+   reported but not judged (the model never sees "plan off" in training).
+
+Reported as well, not judged: stays-behind count, best epoch, moving-agent top-1 ADE, and *specificity* (added
+2026-11-07, before training) = follower mean |travel change| ½(|brake − real| + |accel − real|) / placebo mean. Higher =
+the plan reaches the follower more than the agents that should ignore it. v2: seed 42 6.86 / 2.38 = **2.88**,
+seed 123 6.96 / 2.30 = **3.03**, seed 2026 3.59 / 1.44 = **2.50**.
+If 1 passes but 2 fails, the model has become sensitive to the plan everywhere, not only where it should be:
+reported as "fails". Any pass is preliminary until it is repeated with seeds 123 and 2026.
+
+### Addendum (recorded 2026-11-07, before v3a training): v3b, v3c, selection and a new closed-loop test set
+- **v3b** (plan cross-attention) and **v3c** (stand-in ego) are judged with the **same three pass criteria and the same
+  v2 references** as v3a above (follower brake ratio ≥ 0.53; placebo ≤ 2.9 m and per-group caps; val minADE₆ plan on
+  ≤ 1.259 m). Specificity is reported for each, not judged.
+- **Selection rule:** winner = the variant that passes all three checks with the largest follower brake ratio. Only the
+  winner gets a closed-loop test, **once**, against v2_d_rerun, on the new test set below. If none passes, there is
+  no closed-loop test.
+- **New closed-loop test set** `sim/scene_lists/test_v3.json`: the 146 test150 scenes with new start times t0 = 4 s and
+  8 s, kept only if ≥ 7 s of log remain (all scenes are 19.0–20.0 s long, so 292 episodes). Built from the scene and
+  sample tables only; nothing has been run on it.
+  - Caveat: the scenes are the same as test150, and the windows overlap the seconds already driven there (test150
+    episodes ran the whole ~19.5 s log). The start states and the plans are new; the traffic is not unseen. No unused
+    nuScenes scenes remain (train/val went into training, all test scenes into test150).
+  - The simulator has no start-time option yet. It must be added and checked on the mini scenes only, before the
+    test run.
 
 ## Next steps (handoff, 2026-11-07, after the final test)
 1. Done: final test (replay v4 + pre-registered reactive run). Decision: WM is safer, on the close-call co-primary
