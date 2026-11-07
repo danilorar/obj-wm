@@ -25,11 +25,19 @@ the car slows down and passes. (nuScenes mini scene-1094, a development scene; o
   <img src="docs/architecture.png" width="960" alt="Model: agent, lane and ego-plan encoders, scene transformer, anchor decoder with 6 paths and probabilities for 16 agents">
 </p>
 
-## Examples
+## Examples (illustration)
 
-<!-- Placeholder: the demo grid / GIF snippet comes from status/demo.md on branch demo-3d (demo agent). -->
+Development scenes, not test scenes.
 
-*Coming soon.*
+<p align="center"><img src="assets/example1_clip.gif" width="960" alt="Example 1: CV passes a turning trailer at 0.03 m, WM keeps 1.30 m"></p>
+
+*Example 1 (dev100 scene-0263): CV passes a turning trailer at 0.03 m, WM slows and keeps 1.30 m (~8 s, 0.5× slow
+motion and a freeze-frame at the closest moment).*
+
+<p align="center"><img src="assets/examples_grid.png" width="960" alt="Three development scenes, CV vs WM at the CV planner's closest moment"></p>
+
+*Picked by a fixed rule among 66 eligible development scenes (WM more distance in 25, CV in 8, equal in 33); rules 1
+and 3 amended post hoc: [docs/demo_selection.md](docs/demo_selection.md).*
 
 ## Results (v2, the official model)
 
@@ -98,6 +106,9 @@ close behind, the situation that teaches this reaction. Both have fewer such eve
 - **Simple reactive road users.** Only cars and trucks react, there is no merge anticipation, and pedestrians and
   cyclists replay the log.
 - **Weak reaction to our plan.** The predicted reaction to our plan is weaker than real drivers' (see v3).
+- **Chatter (dev100, existing runs, `sim_check.py hesitation`):** acceleration sign flips per minute CV 9.7 / WM 13.4
+  (replay), 8.6 / 12.0 (reactive), logged driver 8.0; stop-go events per minute 0.56 / 0.90 and 0.37 / 0.74, driver
+  0.31. Each 0.5 s re-plan picks the best of 35 plans with no switching cost on a coarse speed grid.
 - **Planner hesitation.** The WM planner can stop and go: in one development scene (dev100 scene-0019) it stopped for
   about 4 s in the middle of a junction while the logged driver kept moving. Being cautious lowers close calls but can
   cost smoothness; the progress measure does not capture this.

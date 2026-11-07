@@ -1033,6 +1033,44 @@ def reactive_check(data_dirs, out_dir, idm_overrides, cases_per_set=20):
     return result
 
 
+def hesitation(result_files, out):
+    """Stop-and-go / chatter of each planner from the driven traces in results.json files (no simulation).
+    From 2 Hz positions: speed, acceleration and jerk; acceleration sign flips counted among samples with |a| > 1 m/s^2;
+    a stop-go event = speed >= 2 m/s, then < 0.5 m/s, then >= 2 m/s again. Rates per minute of driving."""
+    import json
+    import numpy as np
+    table = {}
+    for f in result_files:
+        res = json.loads(Path(f).read_text())["results"]
+        table[str(f)] = {}
+        for label, rows in res.items():
+            flips = stops = jerk = n_j = minutes = 0
+            for m in rows:
+                p = np.asarray(m["trace"])[::5, :2]
+                v = np.linalg.norm(np.diff(p, axis=0), axis=1) / 0.5
+                a = np.diff(v) / 0.5
+                j = np.diff(a) / 0.5
+                sig = np.sign(a[np.abs(a) > 1.0])
+                flips += int((np.diff(sig) != 0).sum()) if len(sig) > 1 else 0
+                state = "init"
+                for s_ in v:
+                    if s_ >= 2.0:
+                        stops += state == "stopped"
+                        state = "moving"
+                    elif s_ < 0.5 and state == "moving":
+                        state = "stopped"
+                jerk, n_j, minutes = jerk + float(np.abs(j).sum()), n_j + len(j), minutes + len(p) * 0.5 / 60
+            table[str(f)][label.split()[0]] = dict(scenes=len(rows), minutes=round(minutes, 1),
+                                                   accel_sign_flips_per_min=round(flips / minutes, 2),
+                                                   stop_go_per_min=round(stops / minutes, 3),
+                                                   mean_abs_jerk=round(jerk / n_j, 2))
+            print(f"{Path(f).parent.name:16s} {label:14s} flips/min {flips / minutes:6.2f} | stop-go/min "
+                  f"{stops / minutes:5.3f} | mean |jerk| {jerk / n_j:5.2f} m/s^3")
+    if out:
+        Path(out).write_text(json.dumps(table, indent=1))
+    return table
+
+
 def showcase(data_dir, index, checkpoint, out, reactive, follow=35.0):
     """Side-by-side GIF for the README: the same scene planned with constant-velocity predictions (left) and with the
     world model (right), camera following the ego, legend, collision counter. Development scenes only."""
@@ -1135,6 +1173,9 @@ if __name__ == "__main__":
     p.add_argument("--data", default=str(PROJECT_ROOT / "sim/scenarios/nuscenes_test150"))
     p.add_argument("--checkpoint", default=str(PROJECT_ROOT / "checkpoints/v2_d_rerun/v2_seed42_best.pth"))
     p.add_argument("--out", type=Path, default=OUT_DIR / "test150")
+    p = sub.add_parser("hesitation", help="stop-go / chatter metrics from results.json traces (no simulation)")
+    p.add_argument("results", nargs="+", type=Path)
+    p.add_argument("--out", type=Path)
     p = sub.add_parser("plan")
     p.add_argument("--predictor", choices=("cv", "wm"), nargs="+", default=["cv"])
     p.add_argument("--scenes", type=int, nargs="*", default=[], help="scenario indices (default: all)")
@@ -1167,6 +1208,8 @@ if __name__ == "__main__":
         if "test150" in args.data:
             raise SystemExit("showcase is for development scenes only")
         showcase(Path(args.data), args.index, args.checkpoint, args.out, args.reactive == "idm", args.follow)
+    elif args.step == "hesitation":
+        hesitation(args.results, args.out)
     elif args.step == "reactive-check":
         if any("test150" in d for d in args.data):
             raise SystemExit("reactive-check is for the mini / dev scenes only, never test")
