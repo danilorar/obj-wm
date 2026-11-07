@@ -189,6 +189,12 @@ reported as "fails". Any pass is preliminary until it is repeated with seeds 123
   - Start-time option added 2026-11-07 (`sim_check.py plan --t0`, checked on the mini scenes only; see the
     closed-loop table, row "t0 option check").
 
+### Amendment 2 (recorded 2026-11-07, before v3c training): v3c stand-in probability
+- v3c is trained with `--stand-in-ego 1.0` (every qualifying sample uses the stand-in ego), not 0.5.
+- Reason: only 12.6% of the training samples qualify for a stand-in ego, so p = 0.5 would give the model a stand-in
+  in only ~6% of samples, likely too few to learn from.
+- Nothing else changes: same three pass criteria, same v2 references, same selection rule and test set.
+
 ## Next steps (handoff, 2026-11-07, after the final test)
 1. Done: final test (replay v4 + pre-registered reactive run). Decision: WM is safer, on the close-call co-primary
    endpoint; at fault shows no detectable difference (1 event). Report: `outputs/sim/test150_final_report.md`.
