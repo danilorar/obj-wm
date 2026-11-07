@@ -194,6 +194,29 @@ def womd_scenes(paths):
         yield s.scenario_id, sub(arr[sdc]), agents
 
 
+AV2_VEHICLES = {"vehicle", "bus", "motorcyclist"}
+
+
+def av2_scenes(paths):
+    """Argoverse 2 motion-forecasting parquet files (110 steps at 10 Hz) -> 2 Hz steps 0, 5, ..., 105. Ego = track 'AV'."""
+    import pandas as pd
+    for p in paths:
+        d = pd.read_parquet(p, columns=["track_id", "object_type", "timestep", "position_x", "position_y", "heading"])
+        T = int(d.timestep.max()) + 1
+        keep = np.arange(0, T, 5)
+        tracks = {}
+        for tid, g in d.groupby("track_id"):
+            if tid != "AV" and g.object_type.iloc[0] not in AV2_VEHICLES:
+                continue
+            pos, yaw, valid = np.zeros((T, 2)), np.zeros(T), np.zeros(T, bool)
+            ts = g.timestep.to_numpy()
+            pos[ts] = g[["position_x", "position_y"]].to_numpy()
+            yaw[ts], valid[ts] = g.heading.to_numpy(), True
+            tracks[tid] = (pos[keep], yaw[keep], valid[keep])
+        ego = tracks.pop("AV")
+        yield Path(p).stem.replace("scenario_", ""), ego, list(tracks.values())
+
+
 def nuscenes_scenes(dataroot):
     """Official nuScenes 'train' scenes only (= our train + val); official 'val' (= our test) is never read."""
     from nuscenes.nuscenes import NuScenes
@@ -229,6 +252,8 @@ def nuscenes_scenes(dataroot):
 def cmd_follower(args):
     if args.womd:
         name, scenes = "womd", womd_scenes([Path(f) for f in args.womd])
+    elif args.av2:
+        name, scenes = "av2", av2_scenes(sorted(Path(args.av2).glob("scenario_*.parquet")))
     else:
         name, scenes = "nuscenes_train", nuscenes_scenes(args.nuscenes)
     rows = []
@@ -266,6 +291,7 @@ def main():
     g = f.add_mutually_exclusive_group(required=True)
     g.add_argument("--womd", nargs="+", help="validation tfrecords (never files 140-149)")
     g.add_argument("--nuscenes", help="nuScenes dataroot (with v1.0-trainval)")
+    g.add_argument("--av2", help="folder of Argoverse 2 scenario_*.parquet files")
     f.add_argument("--out", required=True)
     f.add_argument("--base-rate", action="store_true", help="also report follower / vehicle hard-brake base rates")
     args = p.parse_args()

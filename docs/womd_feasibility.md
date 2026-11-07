@@ -261,3 +261,21 @@ none).
   motorcyclist (as nuScenes `vehicle.*` without bicycles). Valid = a row exists for that track and step.
 - **Same gate:** R_AV2 ≥ 2 × R_nuScenes = **30.8 strong events / h** and ≥ 10 events → go for an AV2 v3 spec.
   Otherwise no-go. Base rates are reported only.
+
+### AV2 result (2026-11-07) → **NO-GO**
+
+| Dataset | Scenes | Ego-moving h | Ego brake episodes / h | With follower | Strong events | **R (strong / h)** | 95% CI |
+|---|---|---|---|---|---|---|---|
+| nuScenes official train | 700 | 2.40 | 88.2 | 72 | 37 | **15.4** | 10.8 – 21.2 |
+| WOMD val 00000–00002 | 879 | 0.81 | 40.6 | 11 | 9 | **11.1** | 5.1 – 21.0 |
+| AV2 val, first 2,000 | 2,000 | 2.62 | 57.2 | 35 | 17 | **6.5** | 3.8 – 10.4 |
+
+- Gate (≥ 30.8 / h, ≥ 10 events): **not met**. AV2 has *fewer* strong follower events per hour than nuScenes
+  (whose CI is 10.8–21.2). Ratio ≥ 2 rejected at p < 1e-7 (17 of 54 combined events vs 37 expected).
+- Base rates (reported only): P(follower brakes hard | ego brakes) 0.56 (38 / 68) vs 0.052 when not, a lift of 11×.
+  The vehicle noise floor is 0.073, about twice nuScenes / WOMD (AV2 tracks look noisier), which if anything
+  inflates the AV2 count.
+- Reading: despite the paper's wording, AV2's mining around the AV does not produce more "ego brakes, follower
+  reacts" moments per hour of driving than nuScenes. Neither public dataset has the ego–follower density we hoped for.
+- Sample IDs: `~/Desktop/wm/data/av2/val_sample/ids.txt` (local, 298 MB of parquet). Raw output:
+  `outputs/womd_step0/av2_val2000.json` (local).

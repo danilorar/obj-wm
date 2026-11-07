@@ -157,3 +157,7 @@ Check (d): the logged ego driven 10% slower along its logged route, agents in `-
   WOMD full download and v3-on-WOMD as designed are stopped.
 - Future work: (c) agent–agent stand-in ego on WOMD (needs its own spec); nuScenes ego-plan no-dropout ablation
   as the cheaper first test. See docs/womd_feasibility.md "Future work".
+- **Argoverse 2 check (2026-11-07, same code and gate, pre-registered in `cae567e`): NO-GO.** 2,000 val scenarios
+  (public S3): 6.5 strong follower events / h (17 events, CI 3.8–10.4), below nuScenes 15.4. Neither WOMD nor
+  AV2 is denser in ego–follower braking than nuScenes, so the data-scale route is closed for this question. Next
+  candidate: the nuScenes ego-plan no-dropout ablation, or (c) the stand-in ego (works on any dataset).
