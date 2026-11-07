@@ -255,3 +255,25 @@ test**; `test_v3.json` stays unused.
 2. Done after the test: `LogPathAgent.eligible` now also requires the ScenarioNet type VEHICLE (no simulation change).
 3. Open: reactive stage 2 (swept ego footprint, merge anticipation); the WM's follower reaction is too weak; coverage
    beyond 16 slots.
+
+## WOMD / Argoverse 2 feasibility (branch womd-feasibility, 2026-11-07; code `scripts/womd.py` on tag `womd-nogo`)
+- Feasibility: `docs/womd_feasibility.md`. Decisions recorded there; `.venv_womd` built in ~/Desktop/wm.
+- Step 0 (follower-event gate, pre-registered in the doc): nuScenes done (15.4 strong events / h).
+  Waiting for Danilo to download WOMD validation files 00000 and 00140–00149 into ~/Desktop/wm/data/womd/validation/.
+- **womd_test300 fixed (2026-11-07, before step 0 and before any training):** `sim/scene_lists/womd_test300.json`,
+  sha256 `9ce970748867e6193f5064e5035e336d80d8c36d9a89af27bcb573468b32cce8`. Source: v1.3.1
+  `uncompressed/scenario/validation` files 140–149 (sha256 of each file is in the JSON). 2,927 scenarios read, 1,827
+  eligible (223 with the SDC in objects_of_interest); picked 150 interactive + 150 others (rng seed 0).
+- Step 0 result: WOMD val 00000 R = 7.6 strong follower events / h (2 events) vs nuScenes 15.4 (37). Gate (≥ 30.8 / h,
+  ≥ 10 events) not met; formally "inconclusive", but ratio ≥ 2 is rejected at p = 0.02. Recommendation: no-go for the
+  full download as planned. Base rates (reported only): follower hard-brake 51% vs 6.5% (nuScenes) when the ego brakes
+  vs not; noise floor 4.0% in both. Details: docs/womd_feasibility.md "Step 0 results".
+- **Step 0 final (files 00000–00002, same code and gate): NO-GO.** WOMD 11.1 strong follower events / h (9 events,
+  95% CI 5.1–21.0) vs nuScenes 15.4; the gate needed ≥ 30.8 / h and ≥ 10 events. Ratio ≥ 2 rejected at p = 0.002.
+  WOMD full download and v3-on-WOMD as designed are stopped.
+- Future work: (c) agent–agent stand-in ego on WOMD (needs its own spec); nuScenes ego-plan no-dropout ablation
+  as the cheaper first test. See docs/womd_feasibility.md "Future work".
+- **Argoverse 2 check (2026-11-07, same code and gate, pre-registered in `cae567e`): NO-GO.** 2,000 val scenarios
+  (public S3): 6.5 strong follower events / h (17 events, CI 3.8–10.4), below nuScenes 15.4. Neither WOMD nor
+  AV2 is denser in ego–follower braking than nuScenes, so the data-scale route is closed for this question. Next
+  candidate: the nuScenes ego-plan no-dropout ablation, or (c) the stand-in ego (works on any dataset).
