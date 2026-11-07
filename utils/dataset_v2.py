@@ -20,6 +20,14 @@ EGO_TYPE = AGENT_TYPES.index("ego")
 # (width 1.73 m without mirrors, length 4.08 m), as used in the nuScenes devkit.
 EGO_SIZE = (1.73, 4.08)  # (width, length) in metres
 
+VEHICLE_TYPES = (0, 1)   # car, truck_bus
+
+
+def is_follower(x, y, dth_deg):
+    """Follower of an ego, in the ego frame: 2-15 m behind, |lateral| <= 1.5 m, heading within 20 deg
+    (the follower-test definition, scripts/run_turn_angle_analysis.py)."""
+    return -15 <= x <= -2 and abs(y) <= 1.5 and abs(dth_deg) <= 20
+
 
 def agent_type(category):
     """Map a nuScenes category name to an index in AGENT_TYPES."""
@@ -64,14 +72,21 @@ class TrajectoryDatasetV2(Dataset):
     target_future_valid (F,)
     ego_future        (F, 4)     [x, y, cos, sin], the ego plan (input of the ego-plan token, not a label)
     ego_future_valid  (F,)       bool
+    stand_in_slot     ()         only with stand_in_prob > 0: slot the stand-in ego came from, -1 = real ego
+
+    stand_in_prob > 0 (v3c, training only): with this probability per sample, a non-ego vehicle that has a follower
+    becomes the "ego" (see _stand_in). The draw uses torch's RNG (seeded per DataLoader worker), so runs are
+    reproducible; with stand_in_prob = 0 nothing is drawn and the items are exactly as before.
     """
 
-    def __init__(self, path, max_agents=64, max_lanes=192, max_points=21):
+    def __init__(self, path, max_agents=64, max_lanes=192, max_points=21, stand_in_prob=0.0, predict_agents=16):
         with open(path, "rb") as f:
             self.samples = pickle.load(f)
         self.max_agents = max_agents
         self.max_lanes = max_lanes
         self.max_points = max_points
+        self.stand_in_prob = stand_in_prob
+        self.predict_agents = predict_agents
 
     def __len__(self):
         return len(self.samples)
@@ -113,7 +128,56 @@ class TrajectoryDatasetV2(Dataset):
         out["agent_size"][1] = EGO_SIZE
 
         out["agent_mask"][:n] = True
+        if self.stand_in_prob > 0:   # full future [x, y, cos, sin] per slot, for the stand-in ego plan
+            out["_future4"] = np.zeros((A, F, 4), np.float32)
+            out["_future4"][slots] = s["agent_future"][order]
         return out
+
+    def _stand_in(self, out):
+        """v3c: with prob stand_in_prob, a stand-in ego replaces the real ego in this training sample.
+
+        Candidates: slots >= 2 (not the target, not the ego), car or truck/bus, valid now, speed >= 3 m/s, all F
+        future steps valid, and at least one follower (is_follower in the candidate's frame: a car or truck/bus in
+        a predicted slot (0, 2..predict_agents), valid now, >= 6 valid future steps) - the follower-test rules.
+        One candidate is drawn uniformly. Slots 1 and j are swapped, so the stand-in sits where the ego sits:
+        type 'ego' (it keeps its own size), no future label (left out of the loss like the ego), and its real
+        future [x, y, cos, sin] in the target frame becomes ego_future, the same frame and format as the real
+        ego plan. The real ego goes to slot j as a car (EGO_SIZE, no future label). Returns the slot or -1."""
+        if torch.rand(()).item() >= self.stand_in_prob:
+            return -1
+        hist, hv, types = out["agent_hist"], out["agent_hist_valid"], out["agent_type"]
+        mask, fv = out["agent_mask"], out["agent_future_valid"]
+        now = hist[:, -1]
+        pos, heading = now[:, :2], np.arctan2(now[:, 3], now[:, 2])
+        speed = np.hypot(now[:, 4], now[:, 5])
+        vehicle = mask & hv[:, -1] & np.isin(types, VEHICLE_TYPES)
+        pred = np.zeros(len(mask), bool)
+        pred[[0] + list(range(2, self.predict_agents + 1))] = True
+        follower_ok = vehicle & pred & (fv.sum(-1) >= 6)
+        candidates = []
+        for j in np.flatnonzero(vehicle & (speed >= 3.0) & fv.all(-1)):
+            if j < 2:
+                continue
+            c, s_ = np.cos(heading[j]), np.sin(heading[j])
+            for i in np.flatnonzero(follower_ok):
+                if i == j:
+                    continue
+                d = pos[i] - pos[j]
+                dth = np.degrees(np.angle(np.exp(1j * (heading[i] - heading[j]))))
+                if is_follower(c * d[0] + s_ * d[1], -s_ * d[0] + c * d[1], dth):
+                    candidates.append(j)
+                    break
+        if not candidates:
+            return -1
+        j = int(candidates[torch.randint(len(candidates), ()).item()])
+        plan, plan_valid = out["_future4"][j].copy(), fv[j].copy()
+        for key in ("agent_hist", "agent_hist_valid", "agent_size"):
+            out[key][[1, j]] = out[key][[j, 1]]
+        types[1], types[j] = EGO_TYPE, AGENT_TYPES.index("car")
+        out["agent_future"][[1, j]] = 0.0
+        fv[[1, j]] = False
+        out["ego_future"], out["ego_future_valid"] = plan, plan_valid
+        return j
 
     def _lanes(self, s):
         L, P = self.max_lanes, self.max_points
@@ -153,4 +217,7 @@ class TrajectoryDatasetV2(Dataset):
         out["target_future_valid"] = out["agent_future_valid"][0]
         out["ego_future"] = s["ego_future"].astype(np.float32)
         out["ego_future_valid"] = s["ego_future_valid"]
+        if self.stand_in_prob > 0:
+            out["stand_in_slot"] = np.int64(self._stand_in(out))
+            del out["_future4"]
         return {k: torch.from_numpy(np.ascontiguousarray(v)) for k, v in out.items()}

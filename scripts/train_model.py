@@ -170,7 +170,10 @@ def run_v2(args, seed, device, checkpoint):
     from utils.models_v2 import V2Predictor
 
     def loader(split, shuffle):
-        ds = TrajectoryDatasetV2(PROJECT_ROOT / f"data/processed_v2/nuscenes_{split}_prediction_samples_map.pkl")
+        # v3c: the stand-in ego is used in training only; val (and test) always keep the real ego
+        stand_in = args.stand_in_ego if split == "train" else 0.0
+        ds = TrajectoryDatasetV2(PROJECT_ROOT / f"data/processed_v2/nuscenes_{split}_prediction_samples_map.pkl",
+                                 stand_in_prob=stand_in, predict_agents=args.predict_agents)
         if split == "train" and args.train_fraction < 1.0:
             # Fixed permutation (seed 0, independent of --seed): the 25% subset is part of the 50% subset
             order = np.random.default_rng(0).permutation(len(ds))
@@ -210,13 +213,18 @@ def run_v2(args, seed, device, checkpoint):
         print(f"Training v2 (assign={args.assign}, topology={args.topology}, scale_inputs={args.scale_inputs}, "
               f"predict_agents={args.predict_agents}, ego_plan={args.ego_plan}, soft_scores={args.soft_scores}, "
               f"target_split={args.target_split}, plan_queries={args.plan_queries}, plan_drop={args.plan_drop}, "
+              f"stand_in_ego={args.stand_in_ego}, "
               f"anchors={args.anchors}) | {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M params | "
               f"seed={seed} | device={device}", flush=True)
 
         for epoch in range(1, args.epochs + 1):
             model.train()
             start, loss_sum, reg_sum, cls_sum = time.time(), 0.0, 0.0, 0.0
+            n_stand_in, n_seen = 0, 0
             for batch in train_loader:
+                if "stand_in_slot" in batch:
+                    n_stand_in += int((batch.pop("stand_in_slot") >= 0).sum())
+                    n_seen += len(batch["agent_mask"])
                 batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
                 traj, logits = model(batch)
                 loss, parts = model.loss(batch, traj, logits)
@@ -236,7 +244,8 @@ def run_v2(args, seed, device, checkpoint):
                 torch.save(model.state_dict(), checkpoint)
             best_epoch = int(np.argmin(val_metrics)) + 1
             print(f"epoch {epoch:3d} | loss {loss_sum / steps:.3f} (reg {reg_sum / steps:.3f}, "
-                  f"cls {cls_sum / steps:.3f}) | lr {scheduler.get_last_lr()[0]:.1e} | {train_time:.0f}s", flush=True)
+                  f"cls {cls_sum / steps:.3f}) | lr {scheduler.get_last_lr()[0]:.1e} | {train_time:.0f}s"
+                  + (f" | stand-in ego {n_stand_in / n_seen:.1%} of samples" if n_seen else ""), flush=True)
             for label, m in val.items():
                 print(f"          val{' ' + label if label != 'default' else ''}: {format_v2(m)}", flush=True)
             wins = main["mode_wins"]
@@ -263,7 +272,7 @@ def run_v2(args, seed, device, checkpoint):
         save_run_manifest(
             checkpoint, model="v2", assign=args.assign, topology=args.topology, scale_inputs=args.scale_inputs,
             predict_agents=args.predict_agents, ego_plan=args.ego_plan, plan_drop=args.plan_drop if args.ego_plan else None,
-            plan_queries=args.plan_queries,
+            plan_queries=args.plan_queries, stand_in_ego=args.stand_in_ego,
             soft_scores=args.soft_scores, target_split=args.target_split, patience_start=args.patience_start,
             train_fraction=args.train_fraction,
             model_class=type(model).__name__, seed=seed, num_modes=6,
@@ -324,6 +333,9 @@ def main():
                         help="v2 --ego-plan: probability of dropping the plan per training sample")
     parser.add_argument("--plan-queries", action="store_true",
                         help="v2 --ego-plan: also add the ego plan (in each agent's own frame) to its decoder queries")
+    parser.add_argument("--stand-in-ego", type=float, default=0.0, metavar="P",
+                        help="v2 --ego-plan multi-agent (v3c): in training only, with probability P per sample a "
+                             "non-ego vehicle with a follower becomes the ego (its real future = the plan); 0 = off")
     parser.add_argument("--soft-scores", action="store_true",
                         help="v2 only: score loss against softmax(-ADE_k / 1 m) instead of the one-hot winner")
     parser.add_argument("--topology", action="store_true",
@@ -332,6 +344,10 @@ def main():
                         help="v2 only: divide agent/lane positions by 50 m before the token MLPs")
     args = parser.parse_args()
 
+    if not 0.0 <= args.stand_in_ego <= 1.0:
+        parser.error("--stand-in-ego must be in [0, 1]")
+    if args.stand_in_ego and not (args.ego_plan and args.predict_agents > 1):
+        parser.error("--stand-in-ego needs --ego-plan and --predict-agents > 1")
     if args.epochs < 1 or args.batch_size < 1:
         parser.error("--epochs and --batch-size must be positive")
     if not np.isfinite(args.lr) or args.lr <= 0:
