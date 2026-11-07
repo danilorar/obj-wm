@@ -277,5 +277,5 @@ none).
   inflates the AV2 count.
 - Reading: despite the paper's wording, AV2's mining around the AV does not produce more "ego brakes, follower
   reacts" moments per hour of driving than nuScenes. Neither public dataset has the ego–follower density we hoped for.
-- Sample IDs: `~/Desktop/wm/data/av2/val_sample/ids.txt` (local, 298 MB of parquet). Raw output:
+- Sample: deleted after the check (2026-11-07). The IDs can be rebuilt: the first 2,000 folders of the S3 `val/` listing in key order. Raw output:
   `outputs/womd_step0/av2_val2000.json` (local).
