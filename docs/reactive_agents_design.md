@@ -31,7 +31,7 @@ from the path at `s` and set directly (`set_position`, `set_heading_theta`, `set
 **Speed law: track the log, and brake for leaders.**
 `a = min(a_track, a_IDM)`, capped to [−b_max, a_max].
 - `a_track = k_s·(s_log(t) − s) + k_v·(v_log(t) − v)` with k_s = 0.5 s⁻², k_v = 1.0 s⁻¹. Here `s_log(t)` and `v_log(t)`
-  come from the 2 Hz positions (not from the interpolated 10 Hz data; see CLAUDE.md pitfalls).
+  come from the 2 Hz positions (not from the interpolated 10 Hz data).
 - `a_IDM = a_max·[1 − (v/v₀)^δ − (s*/gap)²]`, with `s* = s₀ + v·T + v·Δv / (2√(a_max·b))`.
 
 | Param | Value | Note |

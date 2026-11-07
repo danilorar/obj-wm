@@ -1,0 +1,195 @@
+{
+ "description": "Closed-loop test, 146 nuScenes test scenes (sim/scenarios/nuscenes_test150), planner weights frozen on the 10 mini dev scenes. Counts are totals over scenes; progress and close-call share are means over scenes. Paired stats: WM - CV per scene, bootstrap CIs (10,000 resamples, seed 0) and Wilcoxon.",
+ "runs": {
+  "replay": {
+   "planners": {
+    "CV": {
+     "scenes": 146,
+     "at_fault": 1,
+     "rear_ended": 14,
+     "progress_mean": 0.9205460331052073,
+     "close_call_share_mean": 0.10677485996339638
+    },
+    "WM": {
+     "scenes": 146,
+     "at_fault": 0,
+     "rear_ended": 16,
+     "progress_mean": 0.9232471647110924,
+     "close_call_share_mean": 0.06015477973120367
+    },
+    "expert": {
+     "scenes": 146,
+     "at_fault": 1,
+     "rear_ended": 2,
+     "progress_mean": 0.9999930234481182,
+     "close_call_share_mean": 0.08139731573401364
+    }
+   },
+   "paired_wm_minus_cv": {
+    "at-fault collisions / scene": {
+     "n": 146,
+     "mean": -0.00684931506849315,
+     "ci": [
+      -0.02054794520547945,
+      0.0
+     ],
+     "wilcoxon_p": 0.31731050786291415
+    },
+    "progress ratio": {
+     "n": 135,
+     "mean": 0.002701131605885042,
+     "ci": [
+      -0.0020339887119774215,
+      0.008090806422367485
+     ],
+     "wilcoxon_p": 0.3907600545943679
+    },
+    "rear-ended / scene": {
+     "n": 146,
+     "mean": 0.0136986301369863,
+     "ci": [
+      0.0,
+      0.03424657534246575
+     ],
+     "wilcoxon_p": 0.15729920705028502
+    },
+    "min distance [m]": {
+     "n": 146,
+     "mean": 0.07978904237835611,
+     "ci": [
+      0.017609919014592714,
+      0.14228970093235183
+     ],
+     "wilcoxon_p": 0.002454643753970479
+    },
+    "min TTC [s] (capped at 5)": {
+     "n": 146,
+     "mean": 0.09109589041095889,
+     "ci": [
+      -0.10960616438356167,
+      0.3041267123287669
+     ],
+     "wilcoxon_p": 0.3111886069153402
+    },
+    "share of steps with distance < 1 m": {
+     "n": 146,
+     "mean": -0.046620080232192704,
+     "ci": [
+      -0.07611349435231915,
+      -0.021316764646072513
+     ],
+     "wilcoxon_p": 0.00043319257331049624
+    }
+   }
+  },
+  "reactive_idm": {
+   "planners": {
+    "CV": {
+     "scenes": 146,
+     "at_fault": 1,
+     "rear_ended": 2,
+     "progress_mean": 0.9167648279898951,
+     "close_call_share_mean": 0.08306615458562105
+    },
+    "WM": {
+     "scenes": 146,
+     "at_fault": 0,
+     "rear_ended": 2,
+     "progress_mean": 0.9169151619905581,
+     "close_call_share_mean": 0.03578697798236371
+    },
+    "expert": {
+     "scenes": 146,
+     "at_fault": 1,
+     "rear_ended": 2,
+     "progress_mean": 0.9999930234481182,
+     "close_call_share_mean": 0.08115232100271753
+    }
+   },
+   "paired_wm_minus_cv": {
+    "at-fault collisions / scene": {
+     "n": 146,
+     "mean": -0.00684931506849315,
+     "ci": [
+      -0.02054794520547945,
+      0.0
+     ],
+     "wilcoxon_p": 0.31731050786291415
+    },
+    "progress ratio": {
+     "n": 135,
+     "mean": 0.00015033400066312934,
+     "ci": [
+      -0.005224771275637927,
+      0.005975638363680113
+     ],
+     "wilcoxon_p": 0.051303247141180446
+    },
+    "rear-ended / scene": {
+     "n": 146,
+     "mean": 0.0,
+     "ci": [
+      0.0,
+      0.0
+     ],
+     "wilcoxon_p": 1.0
+    },
+    "min distance [m]": {
+     "n": 146,
+     "mean": 0.10016858855321874,
+     "ci": [
+      0.04212938887654587,
+      0.1580692397502859
+     ],
+     "wilcoxon_p": 0.0005856619632451478
+    },
+    "min TTC [s] (capped at 5)": {
+     "n": 146,
+     "mean": 0.12054794520547948,
+     "ci": [
+      -0.07671232876712329,
+      0.32809931506849294
+     ],
+     "wilcoxon_p": 0.21033750840846388
+    },
+    "share of steps with distance < 1 m": {
+     "n": 146,
+     "mean": -0.047279176603257346,
+     "ci": [
+      -0.07630128089586453,
+      -0.022518546762057938
+     ],
+     "wilcoxon_p": 0.00010117124395704438
+    }
+   },
+   "preregistered_decision": {
+    "co_primary": {
+     "at-fault collisions / scene": {
+      "mean": -0.00684931506849315,
+      "ci97_5": [
+       -0.0273972602739726,
+       0.0
+      ],
+      "wilcoxon_p": 0.31731050786291415,
+      "below_zero": false
+     },
+     "close-call share (steps < 1 m)": {
+      "mean": -0.047279176603257346,
+      "ci97_5": [
+       -0.07962540324071507,
+       -0.020478806176399873
+      ],
+      "wilcoxon_p": 0.00010117124395704438,
+      "below_zero": true
+     }
+    },
+    "progress_ci95": [
+     -0.00508418669159744,
+     0.005868316781428442
+    ],
+    "progress_ok": true,
+    "wm_safer": true
+   }
+  }
+ }
+}

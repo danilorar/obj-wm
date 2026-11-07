@@ -1,0 +1,194 @@
+{
+ "description": "Open-loop validation (nuScenes prediction-challenge train_val split, 6,685 samples). minADE6 etc. in metres for the target agent; moving_agents_* over predicted agents that move > 1 m. Test metrics not included.",
+ "runs": {
+  "v2_d_rerun": {
+   "seed": 42,
+   "plan_drop": 0.2,
+   "best_epoch": 40,
+   "torch": "2.15.0+cu132",
+   "plan_on": {
+    "minADE6": 1.2427,
+    "minFDE6": 2.4023,
+    "miss_rate_2m": 0.3726,
+    "moving_agents_minADE6": 0.9957,
+    "moving_agents_top1_ADE": 2.4617
+   },
+   "plan_off": {
+    "minADE6": 1.2805,
+    "minFDE6": 2.5164,
+    "miss_rate_2m": 0.4,
+    "moving_agents_minADE6": 1.0171,
+    "moving_agents_top1_ADE": 2.5451
+   },
+   "note": "official model (laptop)"
+  },
+  "v2_d_seed123": {
+   "seed": 123,
+   "plan_drop": 0.2,
+   "best_epoch": 34,
+   "torch": "2.8.0+cu128",
+   "plan_on": {
+    "minADE6": 1.2316,
+    "minFDE6": 2.4103,
+    "miss_rate_2m": 0.3639,
+    "moving_agents_minADE6": 0.9893,
+    "moving_agents_top1_ADE": 2.5643
+   },
+   "plan_off": {
+    "minADE6": 1.2602,
+    "minFDE6": 2.4723,
+    "miss_rate_2m": 0.3818,
+    "moving_agents_minADE6": 1.0017,
+    "moving_agents_top1_ADE": 2.6198
+   },
+   "note": "variance seed (pod)"
+  },
+  "v2_d_seed2026": {
+   "seed": 2026,
+   "plan_drop": 0.2,
+   "best_epoch": 21,
+   "torch": "2.8.0+cu128",
+   "plan_on": {
+    "minADE6": 1.2414,
+    "minFDE6": 2.3083,
+    "miss_rate_2m": 0.3777,
+    "moving_agents_minADE6": 1.0281,
+    "moving_agents_top1_ADE": 2.494
+   },
+   "plan_off": {
+    "minADE6": 1.2706,
+    "minFDE6": 2.4157,
+    "miss_rate_2m": 0.4036,
+    "moving_agents_minADE6": 1.0428,
+    "moving_agents_top1_ADE": 2.5335
+   },
+   "note": "variance seed (pod)"
+  },
+  "v2_d_rerun_current": {
+   "seed": 42,
+   "plan_drop": 0.2,
+   "best_epoch": 22,
+   "torch": "2.8.0+cu128",
+   "plan_on": {
+    "minADE6": 1.2683,
+    "minFDE6": 2.4483,
+    "miss_rate_2m": 0.3859,
+    "moving_agents_minADE6": 1.0402,
+    "moving_agents_top1_ADE": 2.6347
+   },
+   "plan_off": {
+    "minADE6": 1.2945,
+    "minFDE6": 2.5115,
+    "miss_rate_2m": 0.4169,
+    "moving_agents_minADE6": 1.0586,
+    "moving_agents_top1_ADE": 2.7271
+   },
+   "note": "control: same seed and flags as v2_d_rerun, retrained on the pod"
+  },
+  "v3a": {
+   "seed": 42,
+   "plan_drop": 0.0,
+   "best_epoch": 22,
+   "torch": "2.15.0+cu132",
+   "plan_on": {
+    "minADE6": 1.2046,
+    "minFDE6": 2.2868,
+    "miss_rate_2m": 0.381,
+    "moving_agents_minADE6": 1.0307,
+    "moving_agents_top1_ADE": 2.5283
+   },
+   "plan_off": {
+    "minADE6": 1.5023,
+    "minFDE6": 2.6494,
+    "miss_rate_2m": 0.5174,
+    "moving_agents_minADE6": 1.3021,
+    "moving_agents_top1_ADE": 3.3189
+   },
+   "note": "plan never dropped (laptop)"
+  },
+  "v3a_seed123": {
+   "seed": 123,
+   "plan_drop": 0.0,
+   "best_epoch": 26,
+   "torch": "2.8.0+cu128",
+   "plan_on": {
+    "minADE6": 1.2354,
+    "minFDE6": 2.3698,
+    "miss_rate_2m": 0.3713,
+    "moving_agents_minADE6": 1.0295,
+    "moving_agents_top1_ADE": 2.4724
+   },
+   "plan_off": {
+    "minADE6": 1.5939,
+    "minFDE6": 2.8786,
+    "miss_rate_2m": 0.4836,
+    "moving_agents_minADE6": 1.3101,
+    "moving_agents_top1_ADE": 3.2631
+   },
+   "note": "v3a (pod)"
+  },
+  "v3a_seed2026": {
+   "seed": 2026,
+   "plan_drop": 0.0,
+   "best_epoch": 30,
+   "torch": "2.8.0+cu128",
+   "plan_on": {
+    "minADE6": 1.2674,
+    "minFDE6": 2.4485,
+    "miss_rate_2m": 0.3852,
+    "moving_agents_minADE6": 1.0153,
+    "moving_agents_top1_ADE": 2.6655
+   },
+   "plan_off": {
+    "minADE6": 1.6659,
+    "minFDE6": 3.1176,
+    "miss_rate_2m": 0.5538,
+    "moving_agents_minADE6": 1.3108,
+    "moving_agents_top1_ADE": 3.7187
+   },
+   "note": "v3a (pod)"
+  },
+  "v3b": {
+   "seed": 42,
+   "plan_drop": 0.2,
+   "best_epoch": 24,
+   "torch": "2.8.0+cu128",
+   "plan_on": {
+    "minADE6": 1.2059,
+    "minFDE6": 2.2791,
+    "miss_rate_2m": 0.3644,
+    "moving_agents_minADE6": 1.0447,
+    "moving_agents_top1_ADE": 2.7911
+   },
+   "plan_off": {
+    "minADE6": 1.2296,
+    "minFDE6": 2.3507,
+    "miss_rate_2m": 0.3958,
+    "moving_agents_minADE6": 1.0675,
+    "moving_agents_top1_ADE": 2.8299
+   },
+   "note": "plan cross-attention (pod)"
+  },
+  "v3c": {
+   "seed": 42,
+   "plan_drop": 0.2,
+   "best_epoch": 24,
+   "torch": "2.8.0+cu128",
+   "plan_on": {
+    "minADE6": 1.2075,
+    "minFDE6": 2.2612,
+    "miss_rate_2m": 0.3607,
+    "moving_agents_minADE6": 0.9997,
+    "moving_agents_top1_ADE": 2.3935
+   },
+   "plan_off": {
+    "minADE6": 1.2325,
+    "minFDE6": 2.3397,
+    "miss_rate_2m": 0.3927,
+    "moving_agents_minADE6": 1.0128,
+    "moving_agents_top1_ADE": 2.4736
+   },
+   "note": "stand-in ego (pod)"
+  }
+ }
+}

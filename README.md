@@ -1,40 +1,20 @@
-# A trajectory-prediction world model for closed-loop planning
+# obj-wm
 
-A scene transformer, trained on [nuScenes](https://www.nuscenes.org/nuscenes), predicts where nearby road users will
-go in the next 6 s, given the plan our car is considering. A planner in [MetaDrive](https://github.com/metadriverse/metadrive)
-uses those predictions to pick a safe plan every 0.5 s. On 146 held-out test scenes, this world-model planner spends
-less time close to other road users than the same planner with constant-velocity predictions, with the same progress.
-Three attempts to make the model react more strongly to our plan (v3) were not confirmed.
+Object-level, plan-conditioned world model (conditional behavior prediction) for sampling-based MPC planning on nuScenes.
 
-### Same street scene, two planners
+A scene transformer predicts where the road users around our car will go in the next 6 s, **given the plan our car is
+considering**. A sampling-based planner in [MetaDrive](https://github.com/metadriverse/metadrive) scores 35 candidate
+plans against these predictions and re-plans every 0.5 s. On 146 held-out nuScenes test scenes, the world-model
+planner spends less time close to other road users than the same planner with constant-velocity predictions, at the
+same progress. Three attempts to make the model react more strongly to our plan (v3) were not confirmed.
 
-Our car (green) re-plans every 0.5 s.
-- **Left:** it assumes everyone keeps going straight at the same speed.
-- **Right:** it asks the learned world model.
+> This `main` branch is the clean public version. The full working state (agent status files, per-step notes,
+> v1-era scripts, the WOMD test list) is on branch [`workbench`](../../tree/workbench).
 
-Watch the rider (purple).
+## Results: closed loop on 146 test scenes
 
-<p align="center">
-  <img src="assets/closed_loop_demo.gif" width="960" alt="The same scene driven twice: with constant-velocity predictions the car hits a rider; with the world model it slows down and passes safely">
-</p>
-
-*Left: the conflict is seen only 0.2 s ahead, and the car hits the rider. Right: the rider's move is predicted early;
-the car slows down and passes. (nuScenes mini scene-1094, a development scene; other road users react to our car.)*
-
-<p align="center">
-  <img src="docs/architecture.png" width="960" alt="Model: agent, lane and ego-plan encoders, scene transformer, anchor decoder with 6 paths and probabilities for 16 agents">
-</p>
-
-## Examples
-
-<!-- Placeholder: the demo grid / GIF snippet comes from status/demo.md on branch demo-3d (demo agent). -->
-
-*Coming soon.*
-
-## Results (v2, the official model)
-
-On **146 held-out test scenes**, the same planner is run with constant-velocity predictions (CV) and with the world
-model (WM). Other road users either replay the log or react to our car.
+The same planner is run with constant-velocity predictions (CV) and with the world model (WM). Other road users either
+replay the log or react to our car.
 
 | Planner | Other road users | At-fault collisions | Rear-ended | Progress | Time within 1 m of others |
 |---|---|---|---|---|---|
@@ -44,12 +24,30 @@ model (WM). Other road users either replay the log or react to our car.
 | WM | react | **0** | 2 | 0.917 | **3.6%** |
 
 The decision rule was pre-registered. **The world-model planner is safer:** it spends 4.7 percentage points less time
-within 1 m of others (97.5% CI [−8.0, −2.1] pp, p = 1e-4), with the same progress.
+within 1 m of others (97.5% CI [−8.0, −2.0] pp, p = 1e-4), with the same progress. At-fault collisions are too rare
+to tell apart (1 vs 0).
 
 Open-loop prediction error (val, target minADE₆) is **1.239 ± 0.006 m** over 3 seeds. Training the same seed with the
-same flags on two machines (laptop vs cloud GPU, different torch versions) gave 1.243 vs 1.268 m: **noise between
-machines (~0.025 m) is larger than the spread over seeds**, so small val differences need several seeds to mean
-anything. Every run is listed in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
+same flags on two machines (different GPUs and torch versions) gave 1.243 vs 1.268 m: **noise between machines
+(~0.025 m) is larger than the spread over seeds.**
+
+Numbers: [`results/`](results/) (JSON + the pre-registered test report). Every run: [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
+
+## Method
+
+<p align="center">
+  <img src="docs/architecture.png" width="960" alt="Model: agent, lane and ego-plan encoders, scene transformer, anchor decoder with 6 paths and probabilities for 16 agents">
+</p>
+
+- **Inputs:** 2 s of history of up to 64 nearby agents (incl. our car), lane segments (20 m tokens) in a 50 m box, and the ego plan
+  (our candidate future, 6 s) as extra tokens.
+- **Model:** a scene transformer with relative-pose attention; an anchor-based decoder predicts 6 paths with
+  probabilities for the target and the 15 nearest road users (16 slots). The plan is dropped in 20% of training
+  samples, so the model also works without it.
+- **Planner:** 35 candidate plans (7 target speeds 0–12 m/s × 5 lateral offsets) along the logged route, scored by collision risk
+  against the predicted futures, progress, comfort and lane offset; weights tuned on 10 development scenes and frozen.
+- **Simulator:** nuScenes scenes converted with [ScenarioNet](https://github.com/metadriverse/scenarionet); other road
+  users replay the log, or follow it with an IDM reaction to our car (`--reactive idm`).
 
 <details>
 <summary>More figures</summary>
@@ -61,6 +59,11 @@ anything. Every run is listed in [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md).
 <p align="center"><img src="assets/follower_test_val.png" width="960" alt="Follower predictions under real, braking and accelerating ego plans"></p>
 
 *The car behind ours is predicted to slow down when we plan to brake (red), and to speed up when we accelerate (blue).*
+
+<p align="center"><img src="assets/closed_loop_demo.gif" width="960" alt="The same scene driven twice: with constant-velocity predictions the car hits a rider; with the world model it slows down and passes"></p>
+
+*Development scene (mini scene-1094): with constant-velocity predictions the conflict with a rider is seen 0.2 s
+ahead and the car hits it; with the world model it slows down and passes.*
 
 </details>
 
@@ -80,14 +83,23 @@ predicted to drive into us. Three single changes were tested against criteria wr
 | v3b | decoder cross-attention to the plan | 0.408 | 2.02 | 1.206 | fails the brake check |
 | v3c | other cars stand in as "ego" in training | 0.382 | 1.90 | 1.208 | fails the brake check |
 
-What it shows: always giving the model our plan (v3a) makes the reaction to it consistently stronger, but it also
-leaks into cars that should not react, and accuracy does not improve on average. Even the strongest v3a seed leaves
-18 of 20 following cars driving into a stopped ego. So v2 stays the official model and no v3 closed-loop test was run.
+Always giving the model our plan (v3a) makes the reaction consistently stronger, but it also leaks into cars that
+should not react, and accuracy does not improve on average. Even the strongest v3a seed leaves 18 of 20 following
+cars driving into a stopped ego. v2 stays the official model; no v3 closed-loop test was run.
+v3a is this code with `--plan-drop 0`; v3b / v3c are on tags `v3b-xattn` / `v3c-stand-in`.
 
-**More data?** Waymo Open Motion (WOMD) and Argoverse 2 were checked first for how often the ego brakes hard with a car
-close behind, the situation that teaches this reaction. Both have fewer such events per hour than nuScenes (WOMD
-11.1, AV2 6.5 vs nuScenes 15.4; the pre-set gate was 2× nuScenes), so switching datasets would not help
+<p align="center"><img src="results/figures/v3_reaction.png" width="520" alt="Follower brake ratio vs placebo change for v2 and v3 models"></p>
+
+## Dataset finding: more data would not help
+
+Waymo Open Motion (WOMD) and Argoverse 2 were checked for how often the ego brakes hard with a car close behind, the
+situation that teaches this reaction. Both have fewer such events per ego-moving hour than nuScenes (WOMD 11.1, AV2
+6.5 vs nuScenes 15.4; the pre-set gate was 2× nuScenes), so switching datasets was stopped
 ([docs/womd_feasibility.md](docs/womd_feasibility.md)).
+
+## Examples
+
+<!-- Examples (illustration): added in the next commit. -->
 
 ## Limitations
 
@@ -98,29 +110,51 @@ close behind, the situation that teaches this reaction. Both have fewer such eve
 - **Simple reactive road users.** Only cars and trucks react, there is no merge anticipation, and pedestrians and
   cyclists replay the log.
 - **Weak reaction to our plan.** The predicted reaction to our plan is weaker than real drivers' (see v3).
-- **Planner hesitation.** The WM planner can stop and go: in one development scene (dev100 scene-0019) it stopped for
-  about 4 s in the middle of a junction while the logged driver kept moving. Being cautious lowers close calls but can
-  cost smoothness; the progress measure does not capture this.
-- **Small open-loop differences are noisy.** See the cross-machine note above.
+- **Small open-loop differences are noisy** (cross-machine note above).
 
 ## Future work
 
-- A physically plausible reaction to our plan: losses or data that teach "stay behind a braking car", checked with
-  the same follower / placebo test.
+- A physically plausible reaction to our plan, checked with the same follower / placebo test.
 - Reactive road users, stage 2: swept ego footprint, merge anticipation, reacting pedestrians and cyclists.
-- More predicted road users than 16 (tested with 32 / 63 slots, see EXPERIMENTS.md), and a cost term against
-  stop-and-go.
+- More predicted road users than 16 (32 / 63 slots were tested, see EXPERIMENTS.md).
 - Several seeds per variant on one machine before any val threshold is applied.
 
-<details>
-<summary>Reproduce</summary>
+## Reproduce
 
-Put the nuScenes v1.0-trainval metadata and the map expansion v1.3 in `data/`. For the simulator, add the `v1.0-mini`
-tables in `data/nuscenes_mini/v1.0-mini/` and link the maps with `ln -s ../maps data/nuscenes_mini/maps`.
+**Easy path (no dataset):** re-make the tables and summary figures from the result files.
 
 ```bash
-# environments: .venv (training), .venv_sim (simulator)
-python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt scikit-learn scipy openpyxl
+pip install matplotlib && python results/make_figures.py    # writes results/tables.md and results/figures/*.png
+```
+
+**Quickstart on nuScenes mini (~5 min after the download, any GPU or CPU).** Download from
+[nuscenes.org/download](https://www.nuscenes.org/nuscenes#download) (free account, non-commercial terms): the *mini*
+split (v1.0-mini) and the *map expansion v1.3*. Put the mini tables in `data/nuscenes_mini/v1.0-mini/` and the map
+expansion (with its `prediction/` and `expansion/` folders) in `data/maps/`, then `ln -s ../maps data/nuscenes_mini/maps`.
+
+```bash
+python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt scikit-learn scipy
+.venv/bin/python scripts/build_processed_dataset.py --mini --lane-tokens --workers 4   # mini_train / mini_val
+.venv/bin/python scripts/make_anchors.py                                                # -> assets/anchors.npy
+FLAGS="--model v2 --predict-agents 16 --ego-plan --target-split --plan-queries --plan-drop 0.2"
+.venv/bin/python scripts/train_model.py $FLAGS --epochs 30 --seed 42 --checkpoint-dir checkpoints/mini
+.venv/bin/python scripts/train_model.py $FLAGS --evaluate-only --checkpoint checkpoints/mini/v2_seed42_best.pth
+# one closed-loop scene (simulator env, see below): CV and WM planners on mini scene-1094
+.venv_sim/bin/python scripts/sim_check.py convert --scenes 10
+.venv_sim/bin/python scripts/sim_check.py plan --predictor cv wm --scenes 8 \
+    --checkpoint checkpoints/mini/v2_seed42_best.pth --out outputs/sim/quickstart.json
+```
+
+A model trained on mini alone is weak (val minADE₆ ≈ 3.5 m vs 1.24 m on the full data); the quickstart shows the
+pipeline, not the results.
+
+<details>
+<summary>Full reproduction (nuScenes v1.0-trainval)</summary>
+
+Put the v1.0-trainval metadata tables and the map expansion v1.3 in `data/`.
+
+```bash
+# simulator environment
 uv venv --python 3.10 .venv_sim
 git clone --depth 1 https://github.com/metadriverse/metadrive.git sim/metadrive
 git clone --depth 1 https://github.com/metadriverse/scenarionet.git sim/scenarionet
@@ -128,43 +162,46 @@ VIRTUAL_ENV=.venv_sim uv pip install -e sim/metadrive -e sim/scenarionet "nuscen
 VIRTUAL_ENV=.venv_sim uv pip install torch --index-url https://download.pytorch.org/whl/cu132
 .venv_sim/bin/python -m metadrive.pull_asset
 
-# dataset (~20 min) and training of the official v2 model
+# dataset (~20 min), anchors, training of the official v2 model, validation
 .venv/bin/python scripts/build_processed_dataset.py --lane-tokens --workers 6
-FLAGS="--model v2 --predict-agents 16 --ego-plan --target-split --plan-queries --plan-drop 0.2"
-.venv/bin/python scripts/train_model.py $FLAGS --assign predicted --epochs 60 --patience 15 --patience-start 30 \
-    --batch-size 64 --lr 0.001 --seed 42 --checkpoint-dir checkpoints/v2_d_rerun
+.venv/bin/python scripts/make_anchors.py
+bash scripts/train_official_v2.sh 42        # exact flags of run v2_d_rerun, incl. --plan-drop 0.2
+.venv/bin/python scripts/analyze_v2.py --model v2 --checkpoint checkpoints/v2_d_seed42/v2_seed42_best.pth \
+    --follower-test outputs/follower --follower-group follower            # also: lead / oncoming / side (placebo)
 
-# validation (expect 1.243 m with plan on for the released checkpoint), and the follower test
-.venv/bin/python scripts/train_model.py $FLAGS --evaluate-only --checkpoint checkpoints/v2_d_rerun/v2_seed42_best.pth
-.venv/bin/python scripts/analyze_v2.py --model v2 --checkpoint checkpoints/v2_d_rerun/v2_seed42_best.pth \
-    --follower-test outputs/run_d_rerun
-
-# closed loop: convert scenes, check on the mini dev scenes, then the final test (replay and reactive)
+# closed loop: development scenes, then the final test (replay and reactive)
 .venv_sim/bin/python scripts/sim_check.py convert --scenes 10
 .venv_sim/bin/python scripts/sim_check.py convert --set test150 --scenes 146
-.venv_sim/bin/python scripts/sim_check.py evaluate --data sim/scenarios/nuscenes_mini --out outputs/sim/mini_check
-.venv_sim/bin/python scripts/sim_check.py evaluate --data sim/scenarios/nuscenes_test150 --out outputs/sim/test150_v4
-.venv_sim/bin/python scripts/sim_check.py evaluate --data sim/scenarios/nuscenes_test150 --reactive idm \
+CK=checkpoints/v2_d_seed42/v2_seed42_best.pth
+.venv_sim/bin/python scripts/sim_check.py evaluate --data sim/scenarios/nuscenes_mini --checkpoint $CK --out outputs/sim/mini_check
+.venv_sim/bin/python scripts/sim_check.py evaluate --data sim/scenarios/nuscenes_test150 --checkpoint $CK --out outputs/sim/test150_v4
+.venv_sim/bin/python scripts/sim_check.py evaluate --data sim/scenarios/nuscenes_test150 --checkpoint $CK --reactive idm \
     --out outputs/sim/test150_reactive
 ```
 
-**Flags and defaults.** Pass `--plan-drop 0.2` explicitly: the default is 0.5, which older runs in EXPERIMENTS.md
-rely on. With this code the released v2 checkpoint evaluates to exactly 1.243 m (plan on) / 1.281 m (plan off). The
-v3b / v3c options (`--plan-xattn`, `--stand-in-ego`) are not part of this code; they live on tags `v3b-xattn` and
-`v3c-stand-in`. v3a is the same code with `--plan-drop 0`.
+`--plan-drop` defaults to 0.5 (older runs rely on it); the official model passes 0.2 explicitly. Training is not
+bit-reproducible across machines (see above). Data splits: train = training, val = all selection and tuning,
+test = final numbers only.
 
 </details>
 
-## Repository
+## Data & licences
 
-- `utils/`: the dataset and the model (`models_v2.py`).
-- `scripts/`: data building, training, open-loop analysis (`analyze_v2.py`) and the simulator entry point
-  (`sim_check.py`).
-- `sim/`: the planner, the simulator-to-model adapter and the reactive road users; `sim/scene_lists/` holds the scene
-  lists (two reserved test sets that were never run).
-- `docs/`: [code guide](docs/CODE_GUIDE.md), [every run and pre-registration](docs/EXPERIMENTS.md), the reactive-agent
-  design and the WOMD feasibility study.
-- `legacy/`, `plots/`: v1-era scripts.
+- **nuScenes** is licensed under [CC BY-NC-SA 4.0](https://www.nuscenes.org/terms-of-use) (non-commercial).
+  This repository contains **no** nuScenes data: no tables, processed samples, camera images, model weights or
+  anchors (which are fitted on nuScenes; `scripts/make_anchors.py` regenerates them). The figures and the result files in
+  `results/` are derived from nuScenes for non-commercial research. Trained checkpoints are not distributed.
+  If you use nuScenes, cite: H. Caesar et al., *nuScenes: A multimodal dataset for autonomous driving*, CVPR 2020.
+- **Simulator:** [MetaDrive](https://github.com/metadriverse/metadrive) (Q. Li et al., *MetaDrive: Composing Diverse
+  Driving Scenarios for Generalizable Reinforcement Learning*, IEEE TPAMI 2022) and
+  [ScenarioNet](https://github.com/metadriverse/scenarionet) (Q. Li et al., *ScenarioNet: Open-Source Platform for
+  Large-Scale Traffic Scenario Simulation and Modeling*, NeurIPS 2023 Datasets and Benchmarks). They are installed
+  from their own repositories, not included here.
+- **WOMD / Argoverse 2:** only statistics are reported; no data from either dataset is included.
+- **Code:** MIT ([LICENSE](LICENSE)), for this repository's code only; datasets keep their own terms.
 
-Tags: `v1-gnn` (the earlier GNN model, a final project for SSY340 at Chalmers), `v3b-xattn`, `v3c-stand-in`,
-`womd-nogo`.
+## Credits
+
+v2 builds on v1, a GNN trajectory predictor made as a course project for SSY340 Deep Machine Learning at Chalmers
+(Group 33) with Ashok Ramasamy, Yanran Xie and Kaushik Rathnakar Shetty:
+[gnn-trajectory](https://github.com/danilorar/gnn-trajectory) (tag `v1-gnn` here).

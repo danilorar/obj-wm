@@ -1,0 +1,143 @@
+{
+ "description": "Follower / placebo test (open loop, 20 val scenes per group; scripts/analyze_v2.py --follower-test). brake ratio = predicted drop in the follower's 6 s travel when the ego brakes to a stop / drop needed to stay 4.5 m behind; placebo = mean |travel change| of agents that should not react (lead, oncoming, side). Thresholds pre-registered.",
+ "thresholds": {
+  "brake_ratio_min": 0.53,
+  "placebo_mean_max": 2.9,
+  "lead_max": 4.2,
+  "oncoming_max": 2.2,
+  "side_max": 4.2,
+  "val_minade6_max": 1.259
+ },
+ "selection_round": {
+  "d_rerun": {
+   "ratio": 0.35083803037374844,
+   "stays": 1,
+   "direction": true,
+   "lead": 3.0027325436472894,
+   "oncoming": 0.9050264596939087,
+   "side": 3.2347760662436484,
+   "placebo": 2.380845023194949,
+   "specificity": 2.880369930754217,
+   "val_minade6": 1.243
+  },
+  "d_seed123": {
+   "ratio": 0.4137744955507034,
+   "stays": 0,
+   "direction": true,
+   "lead": 3.160665514320135,
+   "oncoming": 0.6310440011322498,
+   "side": 3.1091555058956146,
+   "placebo": 2.3002883404493333,
+   "specificity": 3.0267924884090656,
+   "val_minade6": 1.232
+  },
+  "d_seed2026": {
+   "ratio": 0.3016276064851782,
+   "stays": 1,
+   "direction": true,
+   "lead": 1.871186999976635,
+   "oncoming": 1.1717728182673455,
+   "side": 1.265033819526434,
+   "placebo": 1.4359978792568047,
+   "specificity": 2.5031518829301036,
+   "val_minade6": 1.241
+  },
+  "v3a": {
+   "ratio": 0.5449334996574281,
+   "stays": 2,
+   "direction": true,
+   "lead": 3.1392055206000804,
+   "oncoming": 1.36649467125535,
+   "side": 2.686679605394602,
+   "placebo": 2.397459932416677,
+   "specificity": 3.0248383651413167,
+   "val_minade6": 1.205,
+   "pass_main": true,
+   "pass_placebo": true,
+   "pass_val": true,
+   "pass_all": true
+  },
+  "v3b": {
+   "ratio": 0.4083741244729472,
+   "stays": 1,
+   "direction": true,
+   "lead": 3.368471109122038,
+   "oncoming": 0.571140518784523,
+   "side": 2.124424684047699,
+   "placebo": 2.0213454373180864,
+   "specificity": 2.6809588249024876,
+   "val_minade6": 1.206,
+   "pass_main": false,
+   "pass_placebo": true,
+   "pass_val": true,
+   "pass_all": false
+  },
+  "v3c": {
+   "ratio": 0.38223249951156635,
+   "stays": 0,
+   "direction": true,
+   "lead": 2.3613076858222484,
+   "oncoming": 0.645755598694086,
+   "side": 2.6956633321940897,
+   "placebo": 1.9009088722368082,
+   "specificity": 3.0286081193623517,
+   "val_minade6": 1.208,
+   "pass_main": false,
+   "pass_placebo": true,
+   "pass_val": true,
+   "pass_all": false
+  }
+ },
+ "v3a_confirmation": {
+  "rule": "amendment 3",
+  "seeds": {
+   "v3a": {
+    "ratio": 0.5449334996574281,
+    "direction": true,
+    "lead": 3.1392055206000804,
+    "oncoming": 1.36649467125535,
+    "side": 2.686679605394602,
+    "placebo": 2.397459932416677,
+    "specificity": 3.0248383651413167,
+    "stays": 2,
+    "val": 1.205,
+    "pass_placebo": true,
+    "pass_val": true
+   },
+   "v3a_seed123": {
+    "ratio": 0.5576448982628845,
+    "direction": true,
+    "lead": 2.6838587820529938,
+    "oncoming": 1.021917239576578,
+    "side": 3.5377353776246308,
+    "placebo": 2.414503799751401,
+    "specificity": 3.2082772416571808,
+    "stays": 2,
+    "val": 1.235,
+    "pass_placebo": true,
+    "pass_val": true
+   },
+   "v3a_seed2026": {
+    "ratio": 0.609354140840084,
+    "direction": true,
+    "lead": 4.130509943142533,
+    "oncoming": 1.8659789737313985,
+    "side": 3.5500542538240554,
+    "placebo": 3.182181056899329,
+    "specificity": 3.108261855279831,
+    "stays": 1,
+    "val": 1.267,
+    "pass_placebo": false,
+    "pass_val": false
+   }
+  },
+  "mean_brake_ratio": 0.5706441795867989,
+  "confirmed": false,
+  "control_d_rerun_current_pod": {
+   "val_plan_on": 1.268,
+   "val_plan_off": 1.295,
+   "best_epoch": 22,
+   "reference_laptop": 1.243
+  }
+ }
+}

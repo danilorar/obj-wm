@@ -33,3 +33,12 @@ outputs/
 /sim/scenarios/
 /sim/nuscenes_test150_tables/
 /sim/nuscenes_dev100_tables/
+
+# Licence safety: no derived data, weights, anchors or videos in git
+assets/anchors*.npy
+*.npy
+*.npz
+*.pkl
+*.pth
+*.pt
+*.mp4

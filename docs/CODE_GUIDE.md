@@ -24,13 +24,12 @@ wm/
 │   └── sim_check.py                 simulator entry point: convert, replay, plan, evaluate, reactive checks
 ├── sim/                        planner.py (plans, tracker), closed_loop.py (episode loop, costs, metrics,
 │   │                           reactive road users), adapter.py (sim -> model inputs)
-│   └── scene_lists/            dev100.json; reserved, never run: test_v3.json, womd_test300.json
-├── legacy/                     v1-era scripts: check_lane_tokens.py, run_interaction_analysis.py
+│   └── scene_lists/            dev100.json; reserved, never run: test_v3.json
 ├── plots/                      v1 plotting (qualitative figures, the v1 README GIF)
 ├── assets/                     anchors.npy (k-means), anchors_angle.npy (turn-spread), README figures and GIF
 ├── docs/                       CODE_GUIDE.md (this file), EXPERIMENTS.md (every run + pre-registrations),
 │                               reactive_agents_design.md, womd_feasibility.md, architecture.png
-├── status/                     per-agent status files (sim.md, pod.md)
+├── results/                    summary JSONs behind the README tables, make_figures.py (no dataset needed)
 ├── data/                       local only (git-ignored except LICENSE)
 │   ├── v1.0-trainval/          nuScenes metadata tables
 │   ├── maps/                   map expansion v1.3 (+ prediction splits)
@@ -148,7 +147,7 @@ Renamed from `run_turn_angle_analysis.py` (2026-11-07). Other modes:
 `--method kmeans` (default): k-means (K = 6) on train endpoints -> `assets/anchors.npy`.
 `--method angle`: 2 straight anchors + one each for right, sharp right, left, sharp left -> `assets/anchors_angle.npy`.
 
-### `legacy/check_lane_tokens.py`
+### `check_lane_tokens.py` (v1-era, on branch `workbench` under `legacy/`)
 Builds the lane tokens of one sample directly from the map and plots segments, direction arrows and edges.
 
 ### `sim/adapter.py` (Phase D: simulator -> model inputs)
@@ -234,7 +233,7 @@ Simulator env setup (already done): `uv venv --python 3.10 .venv_sim`, then with
 | What | Where |
 |---|---|
 | Every run, settings and results; pre-registrations | `docs/EXPERIMENTS.md` |
-| Closed-loop reports | `outputs/sim/<run>/report.md`, final: `outputs/sim/test150_final_report.md` |
+| Closed-loop reports | `outputs/sim/<run>/report.md` (local); final: `results/test150_final_report.md` |
 | v3 checks (follower / placebo / val) | `outputs/v3_checks/`, references `outputs/v3a_prereg/` |
 | Training logs, one per run | `outputs/train_v2_<run>_seed<N>.log` |
 | Best checkpoint + manifest (settings, best / stopped epoch, val and test metrics) | `checkpoints/<run>/v2_seed<N>_best.pth` and `.json` |

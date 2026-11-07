@@ -848,6 +848,11 @@ if __name__ == "__main__":
         help="Also store v2 lane-segment tokens; saved to data/processed_v2 so v1 data is not overwritten",
     )
     parser.add_argument(
+        "--mini", action="store_true",
+        help="Quickstart: nuScenes v1.0-mini in data/nuscenes_mini (prediction splits mini_train -> train, "
+             "mini_val -> val); writes to the same processed folder as the full build",
+    )
+    parser.add_argument(
         "--workers", type=int, default=1,
         help="Parallel worker processes (each holds its own map cache; ~4 fits in 16 GB)",
     )
@@ -855,8 +860,10 @@ if __name__ == "__main__":
     include_map = not args.without_map
     include_lane_tokens = args.lane_tokens
 
-    DATA_DIR = PROJECT_ROOT / "data"
-    VERSION = "v1.0-trainval"
+    DATA_DIR = PROJECT_ROOT / "data" / ("nuscenes_mini" if args.mini else "")
+    VERSION = "v1.0-mini" if args.mini else "v1.0-trainval"
+    SPLITS = (("train", "mini_train"), ("val", "mini_val")) if args.mini else \
+        (("train", "train"), ("val", "train_val"), ("test", "val"))
     
     # Load nuScenes
     nusc = NuScenes(
@@ -865,28 +872,14 @@ if __name__ == "__main__":
         verbose=True
     )
 
-    train_targets = get_prediction_challenge_split(
-        "train",
-        dataroot=str(DATA_DIR)
-    )
-
-    val_targets = get_prediction_challenge_split(
-        "train_val",
-        dataroot=str(DATA_DIR)
-    )
-
-    test_targets = get_prediction_challenge_split(
-        "val",
-        dataroot=str(DATA_DIR)
-    )
-
-    print("Train targets:", len(train_targets))
-    print("Val targets:", len(val_targets))
-    print("Test targets:", len(test_targets))
+    split_targets = [(name, get_prediction_challenge_split(official, dataroot=str(DATA_DIR)))
+                     for name, official in SPLITS]
+    for name, targets in split_targets:
+        print(f"{name} targets:", len(targets))
 
     import pickle
 
-    PROCESSED_DIR = DATA_DIR / ("processed_v2" if include_lane_tokens else "processed")
+    PROCESSED_DIR = PROJECT_ROOT / "data" / ("processed_v2" if include_lane_tokens else "processed")
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     suffix = "" if args.without_map else "_map"
 
@@ -894,11 +887,7 @@ if __name__ == "__main__":
     # Build, validate and save each split before starting the next one
     # --------------------------------------------------------
 
-    for split_name, targets in [
-        ("train", train_targets),
-        ("val", val_targets),
-        ("test", test_targets),
-    ]:
+    for split_name, targets in split_targets:
         dataset, skip_reasons = build_prediction_dataset(
             nusc,
             targets,

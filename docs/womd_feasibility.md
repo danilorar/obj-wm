@@ -1,5 +1,8 @@
 # v3 world model on Waymo Open Motion (WOMD): feasibility
 
+> Public branch note: the test-scene list `sim/scene_lists/womd_test300.json` (IDs and file checksums only) is kept on
+> branch `workbench`; no WOMD or Argoverse 2 data is in this repository.
+
 Date: 2026-11-07. Branch `womd-feasibility`. Read-only research: nothing was downloaded, installed or run on data,
 and no test data was used. Anything not confirmed by a source I read is marked **(unverified)**.
 
@@ -172,7 +175,7 @@ Second risk: the 9 s scenes give only 7 s of closed loop, so at-fault events wil
 
 Same code for both datasets (`scripts/womd.py follower`), on a 2 Hz grid (nuScenes keyframes; WOMD steps 0, 5, …, 90).
 - Speed v[k] = displacement from k−1 to k, projected on the heading at k, ÷ 0.5 s. Acceleration a[k] = (v[k] − v[k−2]) / 1 s.
-  The 1 s window reduces the annotation noise of nuScenes (CLAUDE.md: accelerations from 2 Hz positions).
+  The 1 s window reduces the annotation noise of nuScenes (accelerations from 2 Hz positions).
 - **Exposure:** keyframes t where the ego's a[t] is defined, the ego moved at ≥ 2 m/s at t − 1 s, and the log
   continues to t + 2 s. Reported as ego-moving hours.
 - **Ego brake:** a_ego[t] ≤ −2 m/s². Consecutive brake keyframes form one **episode**.

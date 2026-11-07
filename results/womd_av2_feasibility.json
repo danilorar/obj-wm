@@ -1,0 +1,25 @@
+{
+ "description": "Strong ego-follower braking events per ego-moving hour (same code and definition, docs/womd_feasibility.md). Gate: >= 2x nuScenes (30.8 / h) and >= 10 events.",
+ "nuscenes": {
+  "events_per_h": 15.4,
+  "events": 37
+ },
+ "womd_val_files_00000_00002": {
+  "events_per_h": 11.1,
+  "events": 9,
+  "ci95": [
+   5.1,
+   21.0
+  ]
+ },
+ "argoverse2_val_2000": {
+  "events_per_h": 6.5,
+  "events": 17,
+  "ci95": [
+   3.8,
+   10.4
+  ]
+ },
+ "gate_per_h": 30.8,
+ "decision": "NO-GO"
+}

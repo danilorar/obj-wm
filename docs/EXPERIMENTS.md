@@ -2,7 +2,7 @@
 
 One row per training run. **Add a row for every new run** (including pod runs, while they are still running).
 Metrics: best-epoch **val** target minADE₆ (plan on for ego-plan runs). Test numbers do not go here
-(test is looked at once, at the end; see CLAUDE.md).
+(test is looked at once, at the end).
 Checkpoints: `checkpoints/<run>/v2_seed<N>_best.pth` + `.json`; logs: `outputs/train_v2_<run>_seed<N>.log`.
 
 | Run | Date | Change vs previous | Key flags | Best / stop epoch | Val minADE₆ [m] | Verdict |
@@ -252,7 +252,7 @@ test**; `test_v3.json` stays unused.
 ## State and next steps (handoff, 2026-11-07, end of the v3 round)
 - **Official model: v2_d_rerun** (`checkpoints/v2_d_rerun/v2_seed42_best.pth`). Final closed-loop test done
   (test150 replay v4 + pre-registered reactive run): WM is safer on the close-call co-primary endpoint; at-fault shows
-  no detectable difference (1 event). Report: `outputs/sim/test150_final_report.md`.
+  no detectable difference (1 event). Report: `results/test150_final_report.md`.
 - **v3 round closed: no confirmed improvement.** v3b / v3c fail the follower check; v3a reacts more strongly on all
   seeds (brake ratio mean 0.571) but seed 2026 fails placebo and val (amendment 3). No closed-loop test; `test_v3.json`
   is unused and stays reserved.
@@ -269,7 +269,7 @@ test**; `test_v3.json` stays unused.
 - Feasibility: `docs/womd_feasibility.md`. Decisions recorded there; `.venv_womd` built in ~/Desktop/wm.
 - Step 0 (follower-event gate, pre-registered in the doc): nuScenes done (15.4 strong events / h).
   Waiting for Danilo to download WOMD validation files 00000 and 00140–00149 into ~/Desktop/wm/data/womd/validation/.
-- **womd_test300 fixed (2026-11-07, before step 0 and before any training):** `sim/scene_lists/womd_test300.json`,
+- **womd_test300 fixed (2026-11-07, before step 0 and before any training):** `sim/scene_lists/womd_test300.json` (kept on branch `workbench`),
   sha256 `9ce970748867e6193f5064e5035e336d80d8c36d9a89af27bcb573468b32cce8`. Source: v1.3.1
   `uncompressed/scenario/validation` files 140–149 (sha256 of each file is in the JSON). 2,927 scenarios read, 1,827
   eligible (223 with the SDC in objects_of_interest); picked 150 interactive + 150 others (rng seed 0).
