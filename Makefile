@@ -1,7 +1,7 @@
 # obj-wm Makefile
 # See README.md § Make targets for descriptions.
 
-.PHONY: help setup anchors quickstart figures play drive
+.PHONY: help setup data train-mini demo anchors quickstart figures play drive
 
 PYTHON    := python3.12
 UV        := uv
@@ -16,6 +16,9 @@ LIVE      ?= 0
 help:
 	@echo "Targets:"
 	@echo "  setup       create .venv (training) and .venv_sim (simulation)"
+	@echo "  data        process nuScenes mini into training data  [needs data download first]"
+	@echo "  train-mini  train the world model on nuScenes mini (~30 epochs, any GPU)"
+	@echo "  demo        run one scene closed-loop (CV vs WM), write a GIF  [needs train-mini]"
 	@echo "  anchors     compute anchor trajectories  [needs nuScenes mini]"
 	@echo "  quickstart  end-to-end pipeline on nuScenes mini  [needs nuScenes mini]"
 	@echo "  figures     re-draw tables and figures from results/  [no data needed]"
@@ -59,8 +62,61 @@ setup:
 
 # ── data preparation ─────────────────────────────────────────────────────────
 
+data: $(VENV)/bin/python
+	@if [ ! -f "$(DATA_MINI)/v1.0-mini/scene.json" ]; then \
+	    echo ""; \
+	    echo "ERROR: nuScenes mini not found at $(DATA_MINI)/v1.0-mini/"; \
+	    echo "  1. Create a free account at https://nuscenes.org/nuscenes#download"; \
+	    echo "  2. Download: v1.0-mini.tgz  and  nuScenes-map-expansion-v1.3.zip"; \
+	    echo "  3. Extract: mkdir -p $(DATA_MINI) && tar xf v1.0-mini.tgz -C $(DATA_MINI)/"; \
+	    echo "             mkdir -p data/maps && unzip nuScenes-map-expansion-v1.3.zip -d data/maps/"; \
+	    echo "             ln -s ../maps $(DATA_MINI)/maps"; \
+	    echo "  4. Re-run: make data"; \
+	    echo ""; \
+	    exit 1; \
+	fi
+	$(VENV)/bin/python scripts/build_processed_dataset.py --mini --lane-tokens --workers 4
+	$(VENV)/bin/python scripts/make_anchors.py
+	@echo "==> data ready (mini_train / mini_val + anchors)"
+
 anchors: $(VENV)/bin/python
 	$(VENV)/bin/python scripts/make_anchors.py
+
+# ── world model training (nuScenes mini) ─────────────────────────────────────
+
+train-mini: $(VENV)/bin/python
+	$(VENV)/bin/python scripts/train_model.py \
+	    --model v2 --predict-agents 16 --ego-plan --target-split --plan-queries --plan-drop 0.2 \
+	    --epochs 30 --seed 42 --checkpoint-dir checkpoints/mini
+	$(VENV)/bin/python scripts/train_model.py \
+	    --model v2 --predict-agents 16 --ego-plan --target-split --plan-queries --plan-drop 0.2 \
+	    --evaluate-only --checkpoint checkpoints/mini/v2_seed42_best.pth
+	@echo "==> checkpoint: checkpoints/mini/v2_seed42_best.pth"
+	@echo "    (mini-only model is weak — val minADE6 ~3.5 m vs 1.24 m on full data)"
+
+# ── closed-loop demo (CV vs WM, one mini scene) ──────────────────────────────
+
+CK_DEMO ?= checkpoints/mini/v2_seed42_best.pth
+
+demo: $(VENV_SIM)/bin/python
+	@if [ ! -f "$(CK_DEMO)" ]; then \
+	    echo "ERROR: checkpoint not found at $(CK_DEMO)"; \
+	    echo "  Run 'make train-mini' first, or set CK_DEMO=<path>."; \
+	    exit 1; \
+	fi
+	$(VENV_SIM)/bin/python scripts/sim_check.py convert --scenes 10
+	@mkdir -p outputs/demo
+	$(VENV_SIM)/bin/python scripts/demo_2x2.py clip_topdown \
+	    --data sim/scenarios/nuscenes_mini \
+	    --index 8 \
+	    --out outputs/demo/scene1094_wm_vs_cv.gif \
+	    --checkpoint $(CK_DEMO) \
+	    --scene-label "mini scene-1094 (dev)" \
+	    --label "rider enters from left" --label-t 4.0 --label-dur 2.5 \
+	        --label-panel both --label-y 70 \
+	    --wm-earlier-label \
+	    --reactive idm
+	@echo "==> demo GIF: outputs/demo/scene1094_wm_vs_cv.gif"
 
 # ── end-to-end quickstart (nuScenes mini) ────────────────────────────────────
 

@@ -407,3 +407,62 @@ speed swings follow flicker of the risk term (speed down when a faster plan's ri
   (public S3): 6.5 strong follower events / h (17 events, CI 3.8–10.4), below nuScenes 15.4. Neither WOMD nor
   AV2 is denser in ego–follower braking than nuScenes, so the data-scale route is closed for this question. Next
   candidate: the nuScenes ego-plan no-dropout ablation, or (c) the stand-in ego (works on any dataset).
+
+## Method and architecture
+
+<p align="center">
+  <img src="architecture.png" width="960" alt="Model: agent, lane and ego-plan encoders, scene transformer, anchor decoder with 6 paths and probabilities for 16 agents">
+</p>
+
+- **Inputs:** 2 s of history of up to 64 nearby agents (incl. our car), lane segments (20 m tokens) in a 50 m box, and the ego plan (our candidate future, 6 s) as extra tokens.
+- **Model:** a scene transformer with relative-pose attention; an anchor-based decoder predicts 6 paths with probabilities for the target and the 15 nearest road users (16 slots). The plan is dropped in 20% of training samples, so the model also works without it.
+- **Planner:** 35 candidate plans (7 target speeds 0–12 m/s × 5 lateral offsets) along the logged route, scored by collision risk against predicted futures, progress, comfort and lane offset; weights tuned on 10 development scenes and frozen.
+- **Simulator:** nuScenes scenes converted with [ScenarioNet](https://github.com/metadriverse/scenarionet); other road users replay the log, or follow it with an IDM reaction to our car (`--reactive idm`).
+- **Open-loop accuracy:** val target minADE₆ **1.239 ± 0.006 m** over 3 seeds (seed 42/123/2026). Same seed and flags on two machines (different GPUs and torch versions) gave 1.243 vs 1.268 m: cross-machine noise (~0.025 m) is larger than the 3-seed spread. Future val thresholds should use several seeds on one machine.
+
+### Open-loop prediction examples
+
+<p align="center"><img src="../assets/prediction_examples_val.png" width="960" alt="Val examples: 6 predicted modes vs ground truth"></p>
+
+*Open-loop predictions on val. Green: what happened; orange: the 6 predicted futures (number = probability).*
+
+<p align="center"><img src="../assets/follower_test_val.png" width="960" alt="Follower predictions under real, braking and accelerating ego plans"></p>
+
+*The car behind ours is predicted to slow down when we plan to brake (red), and to speed up when we accelerate (blue). The reaction is in the right direction but too weak (brake ratio 0.35–0.41 of what a real driver would do).*
+
+## Full reproduction (nuScenes v1.0-trainval)
+
+Put the v1.0-trainval metadata tables and the map expansion v1.3 in `data/`.
+
+```bash
+# simulator environment
+uv venv --python 3.10 .venv_sim
+git clone --depth 1 https://github.com/metadriverse/metadrive.git sim/metadrive
+git clone --depth 1 https://github.com/metadriverse/scenarionet.git sim/scenarionet
+VIRTUAL_ENV=.venv_sim uv pip install -e sim/metadrive -e sim/scenarionet "nuscenes-devkit>=1.1.10" ijson
+VIRTUAL_ENV=.venv_sim uv pip install torch --index-url https://download.pytorch.org/whl/cu132
+.venv_sim/bin/python -m metadrive.pull_asset
+
+# training environment
+python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt scikit-learn scipy
+
+# dataset (~20 min), anchors, training the official v2 model, validation
+.venv/bin/python scripts/build_processed_dataset.py --lane-tokens --workers 6
+.venv/bin/python scripts/make_anchors.py
+bash scripts/train_official_v2.sh 42        # exact flags of run v2_d_rerun, incl. --plan-drop 0.2
+.venv/bin/python scripts/analyze_v2.py --model v2 --checkpoint checkpoints/v2_d_seed42/v2_seed42_best.pth \
+    --follower-test outputs/follower --follower-group follower   # also: lead / oncoming / side (placebo)
+
+# closed loop: convert scenarios, then run development scenes, then the final test
+.venv_sim/bin/python scripts/sim_check.py convert --scenes 10
+.venv_sim/bin/python scripts/sim_check.py convert --set test150 --scenes 146
+CK=checkpoints/v2_d_seed42/v2_seed42_best.pth
+.venv_sim/bin/python scripts/sim_check.py evaluate --data sim/scenarios/nuscenes_mini --checkpoint $CK \
+    --out outputs/sim/mini_check
+.venv_sim/bin/python scripts/sim_check.py evaluate --data sim/scenarios/nuscenes_test150 --checkpoint $CK \
+    --out outputs/sim/test150_v4
+.venv_sim/bin/python scripts/sim_check.py evaluate --data sim/scenarios/nuscenes_test150 --checkpoint $CK \
+    --reactive idm --out outputs/sim/test150_reactive
+```
+
+`--plan-drop` defaults to 0.5 (older runs rely on it); the official model passes 0.2 explicitly. Training is not bit-reproducible across machines. Data splits: train = training split, val = all selection and tuning, test = final numbers only.

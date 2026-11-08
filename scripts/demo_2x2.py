@@ -495,11 +495,11 @@ def cam_panel(st, meta, lay):
 
 
 # ---------------------------------------------------------------- distance strip (light)
-def strip_panel(dists, t_now, t_end, d_max, width):
+def strip_panel(dists, t_now, t_end, d_max, width, height=None):
     import numpy as np
     from PIL import Image, ImageDraw
     s = 2
-    w, h = width * s, STRIP_H * s
+    w, h = width * s, (height or STRIP_H) * s
     im = Image.new("RGBA", (w, h), PANEL_BG + (255,))
     dr = ImageDraw.Draw(im)
     x0, x1, y0, y1 = 70 * s, w - 30 * s, 44 * s, h - 30 * s
@@ -751,6 +751,210 @@ def render_clip(runs, out_mp4, out_gif, title, before_s=3.9, after_s=2.1, slow_s
             t.close()
 
 
+# ---------------------------------------------------------------- top-down-only clip mode
+
+W_TD, H_TD = 1280, 540
+MARGIN_TD, GAP_TD = 12, 16
+PANEL_W_TD = (W_TD - 2 * MARGIN_TD - GAP_TD) // 2   # 626
+HEAD_H_TD = 50
+TOP_H_TD = 400
+Y_TOP_TD = HEAD_H_TD                                  # 50
+Y_STRIP_TD = HEAD_H_TD + TOP_H_TD                     # 450
+SUBTITLE_TD = {"CV": "constant-velocity predictions", "WM": "learned world model"}
+
+
+def simulate_topdown(data_dir, index, predictor, reactive, max_steps=None):
+    """Like simulate() but without the 3D camera: no image_observation, faster startup."""
+    from metadrive.envs.scenario_env import ScenarioEnv
+    from metadrive.scenario.utils import get_number_of_scenarios
+    from sim import closed_loop as cl
+    from sim.adapter import EGO_ID
+    zoe = dict(vehicle_model="varying_dynamics", width=cl.EGO_SIZE_ZOE[0], length=cl.EGO_SIZE_ZOE[1])
+    cfg = dict(use_render=False, num_scenarios=get_number_of_scenarios(str(data_dir)),
+               data_directory=str(data_dir), horizon=10_000, log_level=50,
+               crash_vehicle_done=False, crash_object_done=False, crash_human_done=False,
+               vehicle_config=zoe,
+               agent_configs={"default_agent": dict(use_special_color=True, spawn_lane_index=None, **zoe)})
+    env = ScenarioEnv(cfg)
+    steps, state = [], {}
+    try:
+        env.reset(seed=index)
+
+        def hook(info):
+            if not state:
+                state["features"] = info["features"]
+                state["ego_size"] = list(map(float, info["ego_size"]))
+            plan = info.get("plan")
+            steps.append(dict(
+                step=info["step"], pose=info["pose"], speed=info["speed"],
+                near_d=info["near_d"], collided=info["collided"],
+                snapshot={k: v for k, v in info["snapshot"].items() if k != EGO_ID},
+                plan=None if plan is None else dict(
+                    step=plan["step"], dense=plan["dense"], k=plan["k"],
+                    paths=plan["paths"], probs=plan["probs"], ids=plan["ids"]
+                )
+            ))
+
+        m, _ = cl.run_scene(env, predictor, reactive=reactive, step_hook=hook, max_steps=max_steps)
+    finally:
+        env.close()
+    return dict(metrics=m, steps=steps, features=state.get("features", {}),
+                meta=dict(ego_size=state.get("ego_size", [1.85, 4.08])))
+
+
+def load_runs_topdown(data_dir, index, reactive, checkpoint, resim=False):
+    """Simulate CV and WM (top-down only) with caching."""
+    cache = PROJECT_ROOT / f"outputs/demo_2x2/cache_td/{Path(data_dir).name}_{index}_{reactive}.pkl"
+    if cache.exists() and not resim:
+        import pickle
+        return pickle.loads(cache.read_bytes())
+    import pickle
+    from sim import closed_loop as cl
+    runs = {}
+    for name, pred in (("CV", cl.CVPredictor()), ("WM", cl.WorldModelPredictor(checkpoint))):
+        print(f"  simulating {name}…", flush=True)
+        runs[name] = simulate_topdown(Path(data_dir), index, pred, reactive == "idm")
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_bytes(pickle.dumps(runs))
+    return runs
+
+
+def _wm_earlier_s(runs):
+    """Seconds before CV's closest moment when WM first slows significantly more than CV."""
+    import numpy as np
+    cv_steps = runs["CV"]["steps"]
+    wm_steps = runs["WM"]["steps"]
+    kc = int(np.argmin([s["near_d"] for s in cv_steps]))
+    n = min(len(cv_steps), len(wm_steps), kc + 1)
+    for k in range(n):
+        if cv_steps[k]["speed"] - wm_steps[k]["speed"] > 0.8:
+            delta = round((kc - k) * 0.1 / 0.5) * 0.5   # round to nearest 0.5 s
+            return delta if delta >= 0.5 else None
+    return None
+
+
+def compose_topdown(runs, tops, colors, k, f, t_end, d_max, scene_label, labels):
+    """Single top-down-only frame: two panels side by side + header + distance strip."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+    canvas = Image.new("RGB", (W_TD, H_TD), BG)
+    dr = ImageDraw.Draw(canvas, "RGBA")
+    f_hdr = font(18, "SemiBold")
+    f_sub = font(13)
+    f_sml = font(13)
+    f_tim = font(18, "Medium")
+    t_now = 0.0
+    for c, name in enumerate(("CV", "WM")):
+        run = runs[name]
+        kk = min(k, len(run["steps"]) - 1)
+        st = frame_state(run["steps"], kk, f if kk == k else 0.0)
+        t_now = st["t"]
+        lay = layers(st, colors)
+        x0 = MARGIN_TD + c * (PANEL_W_TD + GAP_TD)
+        # header
+        dr.ellipse([x0 + 4, 18, x0 + 14, 28], fill=PLANNER_RGB[name])
+        dr.text((x0 + 22, 23), f"{name} planner", font=f_hdr, fill=TEXT, anchor="lm")
+        x_sub = x0 + 22 + dr.textlength(f"{name} planner", font=f_hdr) + 10
+        dr.text((x_sub, 24), SUBTITLE_TD[name], font=f_sub, fill=MUTED, anchor="lm")
+        # top-down panel
+        trail = [s_["pose"][:2] for s_ in run["steps"][:kk + 1]] + [st["pose"][:2]]
+        td_img = Image.fromarray(tops[name].frame(st, colors, lay, trail, run["meta"]["ego_size"]))
+        framed_paste(canvas, td_img, (x0, Y_TOP_TD))
+        # speed/distance pill
+        closest = min(s_["near_d"] for s_ in run["steps"][:kk + 1])
+        pill(dr, (x0 + 12, Y_TOP_TD + 12),
+             f"speed {st['speed']:.1f} m/s   ·   closest so far {closest:.2f} m", f_sml)
+        if st["collided"]:
+            pill(dr, (x0 + PANEL_W_TD - 12, Y_TOP_TD + 12), "contact",
+                 f_sml, fg=(255, 255, 255), bg=(200, 50, 50, 230), anchor="r")
+        # scale bar (top-right of top-down panel)
+        px_per_m = PANEL_W_TD / (2 * tops[name].half_w)
+        bar_m = 10
+        bpx = bar_m * px_per_m
+        bx, by = x0 + PANEL_W_TD - 20 - bpx, Y_TOP_TD + 24
+        dr.rounded_rectangle([bx - 46, by - 10, bx + bpx + 6, by + 8], 6, fill=(255, 255, 255, 215))
+        dr.line([(bx, by), (bx + bpx, by)], fill=MUTED, width=2)
+        dr.text((bx - 6, by), f"{bar_m} m", font=f_sml, fill=MUTED, anchor="rm")
+        # on-video labels (time-gated, panel-specific)
+        for lbl in labels:
+            if lbl.get("panel", "both") not in (name, "both"):
+                continue
+            if not (lbl["t0"] <= t_now < lbl["t1"]):
+                continue
+            ly = Y_TOP_TD + lbl.get("y_offset", TOP_H_TD // 2)
+            lx = x0 + PANEL_W_TD // 2
+            pill(dr, (lx, ly), lbl["text"], font(15, "SemiBold"), anchor="m",
+                 fg=lbl.get("fg", TEXT), bg=lbl.get("bg", (255, 255, 255, 230)))
+    # top bar: time right, scene label centre
+    dr.text((W_TD - MARGIN_TD, 24), f"t = {t_now:4.1f} s", font=f_tim, fill=TEXT, anchor="rm")
+    dr.text((W_TD // 2, 24), scene_label, font=f_sub, fill=MUTED, anchor="mm")
+    # distance strip
+    dists = {n: [s_["near_d"] for s_ in r["steps"]] for n, r in runs.items()}
+    strip_h_td = H_TD - Y_STRIP_TD
+    framed_paste(canvas, strip_panel(dists, t_now, t_end, d_max, W_TD - 2 * MARGIN_TD, height=strip_h_td),
+                 (MARGIN_TD, Y_STRIP_TD))
+    return canvas
+
+
+def render_clip_topdown(runs, out_gif, scene_label, labels=(), before_s=4.5, after_s=2.5,
+                        slow_s=0.5, freeze_s=1.0):
+    """Short top-down-only clip around the CV planner's closest moment, with freeze-frame and GIF output."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+    colors = assign_colors(runs)
+    n = min(len(r["steps"]) for r in runs.values())
+    kc = int(np.argmin([s["near_d"] for s in runs["CV"]["steps"]]))
+    k0 = max(0, kc - int(round(before_s * 10)))
+    k1 = min(n - 1, kc + int(round(after_s * 10)))
+    ks = int(round(slow_s * 10))
+    mins = {name: r["metrics"]["min_dist_m"] for name, r in runs.items()}
+    tops = {name: TopDown(r["features"], (PANEL_W_TD, TOP_H_TD)) for name, r in runs.items()}
+    big = font(52, "SemiBold")
+    mid = font(21, "Medium")
+
+    def overlay(img, slow, freeze):
+        im = Image.fromarray(img)
+        dr = ImageDraw.Draw(im, "RGBA")
+        if slow:
+            pill(dr, (W_TD // 2, H_TD - 54), "0.5× slow motion", mid, anchor="m")
+        if freeze:
+            cv_str = "collision" if mins["CV"] == 0.0 else f"{mins['CV']:.2f} m"
+            text = f"CV {cv_str}   ·   WM {mins['WM']:.2f} m"
+            bb = dr.textbbox((0, 0), text, font=big)
+            bw, bh = bb[2] - bb[0] + 72, bb[3] - bb[1] + 96
+            x, y = (W_TD - bw) // 2, (H_TD - bh) // 2
+            dr.rounded_rectangle((x, y, x + bw, y + bh), 20,
+                                   fill=(255, 255, 255, 240), outline=BORDER, width=2)
+            dr.text((W_TD // 2, y + 26), "closest distance to any road user", font=mid, fill=MUTED, anchor="mt")
+            dr.text((W_TD // 2, y + bh - 24), text, font=big, fill=TEXT, anchor="mb")
+        return np.ascontiguousarray(np.asarray(im))
+
+    try:
+        t_end = n * 0.1
+        gif_frames = []
+        for k in range(k0, k1 + 1):
+            slow = abs(k - kc) < ks
+            for f in ((0.0, 0.25, 0.5, 0.75) if slow else (0.0, 0.5)):
+                if k == k1 and f > 0:
+                    continue
+                base = np.asarray(compose_topdown(runs, tops, colors, k, f, t_end,
+                                                   d_max_of(runs), scene_label, labels))
+                is_closest = k == kc and f == 0.0
+                reps = [(False, 1)] + ([(True, int(freeze_s * FPS))] if is_closest else [])
+                for freeze, count in reps:
+                    img = overlay(base, slow, freeze)
+                    for _ in range(count):
+                        gif_frames.append(img)
+        out_gif.parent.mkdir(parents=True, exist_ok=True)
+        size = write_gif(gif_frames, out_gif)
+        return dict(gif=str(out_gif), gif_size=list(size), gif_mb=out_gif.stat().st_size / 1e6,
+                    closest_step=kc, t_closest=kc * 0.1,
+                    min_cv=mins["CV"], min_wm=mins["WM"])
+    finally:
+        for t in tops.values():
+            t.close()
+
+
 # ---------------------------------------------------------------- grid image
 GRID_LABELS = {1: "clear win", 2: "typical", 3: "different situation"}
 
@@ -826,14 +1030,63 @@ def load_runs(data, index, reactive, checkpoint, resim=False, seconds=None):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("what", choices=("grid", "videos", "clip"))
+    p.add_argument("what", choices=("grid", "videos", "clip", "clip_topdown"))
     p.add_argument("--selection", type=Path, default=PROJECT_ROOT / "outputs/demo_2x2/examples_selection_amended.json")
     p.add_argument("--checkpoint", default=str(PROJECT_ROOT / "checkpoints/v2_d_rerun/v2_seed42_best.pth"))
     p.add_argument("--reactive", choices=("off", "idm"), default="idm")
     p.add_argument("--resim", action="store_true", help="ignore the simulation cache")
+    # clip_topdown-only args
+    p.add_argument("--data", type=Path, help="scenario data directory (clip_topdown)")
+    p.add_argument("--index", type=int, help="scenario index in the dataset (clip_topdown)")
+    p.add_argument("--out", type=Path, help="output GIF path (clip_topdown)")
+    p.add_argument("--scene-label", default="", help="scene name shown in header (clip_topdown)")
+    p.add_argument("--label", action="append", default=[], metavar="TEXT",
+                   help="on-video label text, repeatable (clip_topdown)")
+    p.add_argument("--label-t", action="append", default=[], type=float, metavar="T",
+                   help="label start time in seconds, one per --label (default 0.0)")
+    p.add_argument("--label-dur", action="append", default=[], type=float, metavar="DUR",
+                   help="label duration in seconds, one per --label (default 3.5)")
+    p.add_argument("--label-panel", action="append", default=[], choices=("CV", "WM", "both"),
+                   metavar="PANEL", help="which panel: CV, WM, or both (default both)")
+    p.add_argument("--label-y", action="append", default=[], type=int, metavar="Y",
+                   help="y offset within the top-down panel (default half height)")
+    p.add_argument("--wm-earlier-label", action="store_true",
+                   help="auto-add 'WM decelerates X s earlier' label to WM panel (clip_topdown)")
     args = p.parse_args()
     import json
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+
+    if args.what == "clip_topdown":
+        if not args.data or args.index is None or not args.out:
+            raise SystemExit("clip_topdown requires --data, --index, and --out")
+        print(f"==> simulating {args.data.name} index {args.index} …", flush=True)
+        runs = load_runs_topdown(args.data, args.index, args.reactive, args.checkpoint, args.resim)
+        cv_m = runs["CV"]["metrics"]["min_dist_m"]
+        wm_m = runs["WM"]["metrics"]["min_dist_m"]
+        print(f"    CV {cv_m:.3f} m  WM {wm_m:.3f} m", flush=True)
+        # build label list from --label / --label-t / --label-dur / --label-panel / --label-y
+        import numpy as np
+        labels = []
+        kc = int(np.argmin([s["near_d"] for s in runs["CV"]["steps"]]))
+        t_closest = kc * 0.1
+        for i, text in enumerate(args.label):
+            t0 = args.label_t[i] if i < len(args.label_t) else 0.0
+            dur = args.label_dur[i] if i < len(args.label_dur) else 3.5
+            panel = args.label_panel[i] if i < len(args.label_panel) else "both"
+            y_off = args.label_y[i] if i < len(args.label_y) else TOP_H_TD // 2
+            labels.append(dict(text=text, t0=t0, t1=t0 + dur, panel=panel, y_offset=y_off))
+        if args.wm_earlier_label:
+            delta = _wm_earlier_s(runs)
+            if delta:
+                labels.append(dict(
+                    text=f"WM decelerates {delta:g} s earlier",
+                    t0=max(0.0, t_closest - delta - 1.0), t1=t_closest,
+                    panel="WM", y_offset=TOP_H_TD // 2 + 50
+                ))
+        info = render_clip_topdown(runs, args.out, args.scene_label, labels)
+        print(info, flush=True)
+        return
+
     sel = json.loads(args.selection.read_text())
     examples = sel["examples"]
     if any("test150" in ex["data"] for ex in examples):
