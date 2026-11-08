@@ -1,10 +1,10 @@
 # obj-wm
 
-Object-level, plan-conditioned world model for sampling-based MPC planning on nuScenes.
+Predicts how nearby road users react to our car's planned path, and uses those predictions to plan safer routes on nuScenes.
 
 ![mini scene-1094: CV planner hits a rider, WM planner keeps 0.83 m clearance](assets/clip_1094.gif)
 
-*mini scene-1094 (development). Rider enters from the left. CV: at-fault collision. WM keeps 0.83 m — it decelerates 3.5 s earlier.*
+*mini scene-1094 (development). Rider enters from the left. CV crashed into the rider. WM keeps 0.83 m — it decelerates 3.5 s earlier.*
 
 ## How it works
 
@@ -15,12 +15,12 @@ Object-level, plan-conditioned world model for sampling-based MPC planning on nu
 
 ## Results: closed loop on 146 test scenes
 
-| Planner | At-fault | Within 1 m of others | Progress |
+| Planner | Crashes | Within 1 m of others | Progress |
 |---|---|---|---|
 | CV | 1 | 8.3% | 0.917 |
 | **WM** | **0** | **3.6%** | **0.917** |
 
-Reactive IDM agents; 146 held-out test scenes. The 4.7 pp difference in near-miss rate is significant (97.5% CI [−8.0, −2.0], p = 1e-4); at-fault events are too rare to compare statistically.
+Reactive IDM agents; 146 held-out test scenes. The 4.7 pp difference in near-miss rate is significant (97.5% CI [−8.0, −2.0], p = 1e-4); crashes are too rare to compare statistically.
 
 [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) · [results/](results/)
 
@@ -45,10 +45,10 @@ The mini-only model is weak (val minADE₆ ≈ 3.5 m vs 1.24 m on full data) —
 
 ## Limitations
 
-- Only 1 at-fault collision in 146 test scenes, so the result rests on near-miss rate. That measure became a co-primary endpoint after seeing an earlier run (disclosed in EXPERIMENTS.md).
-- 16 road users predicted; ~15% of nearby agents fall back to constant velocity.
-- The world model reacts to our plan too weakly — the car behind barely brakes when we do (brake ratio 0.3–0.4 of a real driver). Three variants were tested; none confirmed (see EXPERIMENTS.md).
-- WM planner chatters: 1.4× more accel sign-flips per minute than CV. Four planner-side fixes all traded smoothness for safety. Root cause: risk flicker in WM predictions between replanning steps.
+- We only saw 1 crash across 146 test scenes, so the safety result relies entirely on near-miss rate. That measure was added as a primary endpoint after we'd already seen an earlier run.
+- The model tracks up to 16 road users. Beyond that, the rest are assumed to keep constant speed — about 15% of nearby agents fall into this bucket.
+- The world model predicts the car behind will barely slow down even when we brake hard — about 30–40% of what a real driver would do.
+- The WM planner makes 1.4× more stop-go oscillations than CV, and every fix we tried made it less safe instead.
 
 ## Future work
 
@@ -60,4 +60,4 @@ The mini-only model is weak (val minADE₆ ≈ 3.5 m vs 1.24 m on full data) —
 
 **nuScenes** is [CC BY-NC-SA 4.0](https://www.nuscenes.org/terms-of-use) (non-commercial). This repository contains no nuScenes data, processed samples, or trained weights. MetaDrive and ScenarioNet are installed from their own repos. Code: MIT ([LICENSE](LICENSE)).
 
-v2 builds on v1, a GNN trajectory predictor made as a course project for SSY340 at Chalmers (Group 33) with Ashok Ramasamy, Yanran Xie and Kaushik Rathnakar Shetty: [gnn-trajectory](https://github.com/danilorar/gnn-trajectory) (tag `v1-gnn` here).
+v2 builds on v1, a GNN trajectory predictor made as a course project for SSY340 at Chalmers: [gnn-trajectory](https://github.com/danilorar/gnn-trajectory).

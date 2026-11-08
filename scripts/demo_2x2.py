@@ -851,9 +851,9 @@ def compose_topdown(runs, tops, colors, k, f, labels):
         # planner label pill (top-left corner, overlaid on panel)
         pill(dr, (x0 + 12, 16), name, f_lbl, anchor="lm",
              fg=(255, 255, 255), bg=(*PLANNER_RGB[name], 220))
-        # contact indicator
+        # contact indicator (bottom-right, away from scale bar)
         if st["collided"]:
-            pill(dr, (x0 + PANEL_W_TD - 12, 16), "contact",
+            pill(dr, (x0 + PANEL_W_TD - 12, H_TD - 16), "contact",
                  f_sml, fg=(255, 255, 255), bg=(200, 50, 50, 230), anchor="r")
         # scale bar (top-right corner)
         px_per_m = PANEL_W_TD / (2 * tops[name].half_w)
