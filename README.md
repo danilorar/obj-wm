@@ -1,12 +1,21 @@
 # obj-wm
 
-Object-level, plan-conditioned world model (conditional behavior prediction) for sampling-based MPC planning on nuScenes.
+Object-level, plan-conditioned world model for sampling-based MPC planning on nuScenes.
 
-A scene transformer predicts where the road users around our car will go in the next 6 s, **given the plan our car is
-considering**. A sampling-based planner in [MetaDrive](https://github.com/metadriverse/metadrive) scores 35 candidate
-plans against these predictions and re-plans every 0.5 s. On 146 held-out nuScenes test scenes, the world-model
-planner spends less time close to other road users than the same planner with constant-velocity predictions, at the
-same progress. Three attempts to make the model react more strongly to our plan (v3) were not confirmed.
+<p align="center">
+  <img src="assets/examples_grid.png" width="960" alt="Three development scenes at the CV planner's closest moment — CV (left) vs WM (right), 3D and top-down">
+</p>
+
+| | CV | WM |
+|---|---|---|
+| Close-call share — reactive (146 test scenes) | 8.3% | **3.6%** |
+| Progress | 0.917 | 0.917 |
+
+- **World model:** scene transformer that predicts road-user futures conditioned on our candidate plan.
+- **Planner:** sampling-based MPC — 35 candidate plans scored against predicted futures, re-planned every 0.5 s.
+- **Evaluation:** pre-registered closed-loop test on 146 held-out nuScenes scenes.
+
+Details → [Results](#results-closed-loop-on-146-test-scenes) · [Method](#method) · [Reproduce](#reproduce) · [Make targets](#make-targets)
 
 > This `main` branch is the clean public version. The full working state (agent status files, per-step notes,
 > v1-era scripts, the WOMD test list) is on branch [`workbench`](../../tree/workbench).
@@ -129,21 +138,11 @@ planner keeps more distance in 25, CV in 8, and they are equal in 33. Rules 1 an
   cyclists replay the log.
 - **Weak reaction to our plan.** The predicted reaction to our plan is weaker than real drivers' (see v3).
 - **Small open-loop differences are noisy** (cross-machine note above).
-- **The WM planner is safe but can chatter (stop-and-go).** Every 0.5 s it picks the best of 35 plans with no cost for
-  switching, on a coarse speed grid (0, 2, 4, … 12 m/s: nothing between standing and 2 m/s), while the multimodal
-  predictions shift a little at each step. In one development scene it stopped for ~4 s mid-junction while the logged
-  driver kept moving. Measured on the 100 dev100 development scenes from existing runs (no planner change; 2 Hz
-  positions; [results/hesitation_dev100.json](results/hesitation_dev100.json)):
-
-  | Other road users | Planner | Accel. sign flips / min (\|a\| > 1 m/s²) | Stop-go events / min | Mean \|jerk\| [m/s³] |
-  |---|---|---|---|---|
-  | replay | CV | 9.7 | 0.56 | 2.40 |
-  | replay | WM | 13.4 | 0.90 | 2.75 |
-  | react | CV | 8.6 | 0.37 | 2.23 |
-  | react | WM | 12.0 | 0.74 | 2.58 |
-  | – | logged driver | 8.0 | 0.31 | 1.25 |
-
-  The test results above are for this planner as it is.
+- **The WM planner can chatter (stop-and-go).** On dev100, the WM planner makes 1.4× more accel-sign flips per minute
+  than CV ([results/hesitation_dev100.json](results/hesitation_dev100.json)). Four planner-side fixes were tested
+  (`--w-switch`, `--veto-unblock`, `--risk-smooth`, `--speedup-hold`); none qualified without a safety cost. Root
+  cause: risk flicker in WM predictions — a temporally consistent predictor is needed
+  (see [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) § v2.1). The test results above use the original planner.
 
 ## Future work
 
@@ -151,8 +150,8 @@ planner keeps more distance in 25, CV in 8, and they are equal in 33. Rules 1 an
 - Reactive road users, stage 2: swept ego footprint, merge anticipation, reacting pedestrians and cyclists.
 - More predicted road users than 16 (32 / 63 slots were tested, see EXPERIMENTS.md).
 - Several seeds per variant on one machine before any val threshold is applied.
-- Smoother planning: a switching cost or hysteresis between consecutive plan choices, finer or continuous speed
-  sampling (MPPI-style), and speed smoothing.
+- **Smoother planning** via temporally consistent WM predictions; planner-side fixes (switching cost, veto hysteresis,
+  risk smoothing, risk-aware hold) were tested and each traded chattering for a safety cost.
 
 ## Reproduce
 
@@ -219,6 +218,20 @@ bit-reproducible across machines (see above). Data splits: train = training, val
 test = final numbers only.
 
 </details>
+
+## Make targets
+
+```
+make setup       # create .venv (training, python 3.12) and .venv_sim (simulation, python 3.10)
+make anchors     # compute anchor trajectories from nuScenes mini
+make quickstart  # full pipeline on nuScenes mini: dataset → train → evaluate → closed-loop
+make figures     # re-draw tables and figures from results/ (no data, no checkpoint)
+make play  SCENE=<idx> PLANNER={cv,wm} [LIVE=1]   # run one dev scene, save a GIF; LIVE=1 opens it
+make drive SCENE=<idx>                             # constant-action drive test (offscreen, saves GIF)
+```
+
+`SCENE` is a zero-based integer index into the converted mini scenario set (see
+`sim/scenarios/nuscenes_mini/`). Pass `CK=<path>` to override the checkpoint.
 
 ## Data & licences
 
