@@ -14,29 +14,20 @@ v2 only (val split by default):
 
 import argparse
 import json
-import pickle
 import sys
 from pathlib import Path
 
 import numpy as np
 import torch
-from torch_geometric.loader import DataLoader
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.graph_utils import sample_to_graph
-from utils.models import (
-    GraphNetworkAttentionMultimodalWithMap,
-    GraphNetworkAttentionMultimodalWithMapGRU,
-)
 from utils.training_utils import multimodal_metrics, read_manifest, set_seed
 
 # Default: the val split. The test split only with --eval-test (final evaluation / reproducibility checks).
-DATASET = PROJECT_ROOT / "data/processed/nuscenes_val_prediction_samples_map.pkl"
 DATASET_V2 = PROJECT_ROOT / "data/processed_v2/nuscenes_val_prediction_samples_map.pkl"
-TEST_DATASET = PROJECT_ROOT / "data/processed/nuscenes_test_prediction_samples_map.pkl"
 TEST_DATASET_V2 = PROJECT_ROOT / "data/processed_v2/nuscenes_test_prediction_samples_map.pkl"
 LABELS = ("0-15 deg", "15-30 deg", "30-60 deg", "60+ deg")
 
@@ -82,10 +73,10 @@ def main():
     parser.add_argument("--seed", type=int, help="Default: saved checkpoint seed, or 2026")
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument(
-        "--model", choices=("multimodal_map", "multimodal_map_gru", "v2"),
-        help="Default: saved model name, or multimodal_map_gru",
+        "--model", choices=("v2",),
+        help="Default: saved model name, or v2",
     )
-    parser.add_argument("--dataset", type=Path, help="Default: the v1 or v2 val split (test split with --eval-test)")
+    parser.add_argument("--dataset", type=Path, help="Default: the v2 val split (test split with --eval-test)")
     parser.add_argument("--eval-test", action="store_true",
                         help="Use the test split (off by default: final evaluation / reproducibility checks only)")
     parser.add_argument("--batch-size", type=int, default=64)
@@ -130,7 +121,7 @@ def main():
         seed = manifest.get("seed", seed)
     if not 0 <= seed < 2**32:
         parser.error("--seed must be between 0 and 2**32 - 1")
-    model_name = args.model or manifest.get("model", "multimodal_map_gru")
+    model_name = args.model or manifest.get("model", "v2")
     set_seed(seed)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
@@ -140,10 +131,7 @@ def main():
     device = torch.device(device)
 
     if args.dataset is None:
-        if args.eval_test:
-            args.dataset = TEST_DATASET_V2 if model_name == "v2" else TEST_DATASET
-        else:
-            args.dataset = DATASET_V2 if model_name == "v2" else DATASET
+        args.dataset = TEST_DATASET_V2 if args.eval_test else DATASET_V2
     elif "_test_" in args.dataset.name and not args.eval_test:
         parser.error(f"{args.dataset.name} is the test split: pass --eval-test (final evaluation only)")
     top1 = None
@@ -165,10 +153,7 @@ def main():
             parser.error("--examples supports --model v2 only")
         plot_examples(args, device, seed)
         return
-    if model_name == "v2":
-        ades, fdes, top1, displacements, angles, invalid, n_samples = evaluate_v2(args, device)
-    else:
-        ades, fdes, displacements, angles, invalid, n_samples = evaluate_v1(args, model_name, device, parser)
+    ades, fdes, top1, displacements, angles, invalid, n_samples = evaluate_v2(args, device)
     bin_and_report(args, model_name, seed, ades, fdes, displacements, angles, invalid, n_samples, top1)
 
 
@@ -294,52 +279,6 @@ def plot_examples(args, device, seed, per_bin=2):
     args.examples.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.examples, dpi=120)
     print(f"Saved {args.examples}")
-
-
-def evaluate_v1(args, model_name, device, parser):
-    """Per-sample minADE6 / minFDE6 of a v1 map-aware checkpoint, plus endpoint geometry."""
-    with args.dataset.open("rb") as handle:
-        samples = pickle.load(handle)
-    graphs, displacements, angles, invalid = [], [], [], []
-    for index, sample in enumerate(samples):
-        future = np.asarray(sample["target_future"])
-        if future.shape != (12, 2) or not np.isfinite(future).all():
-            invalid.append(index)
-            continue
-        if "map_lanes" not in sample:
-            raise ValueError(f"Sample {index} has no map_lanes; use a map-aware dataset")
-        graph = sample_to_graph(sample)
-        if not all(torch.isfinite(t).all() for t in (graph.x, graph.edge_attr, graph.map_points)):
-            invalid.append(index)
-            continue
-        displacement, angle = endpoint_geometry(future)
-        graphs.append(graph)
-        displacements.append(displacement)
-        angles.append(angle)
-    if not graphs:
-        raise ValueError("No valid samples")
-    loader = DataLoader(graphs, batch_size=args.batch_size, shuffle=False)
-
-    if model_name == "multimodal_map":
-        model = GraphNetworkAttentionMultimodalWithMap(num_modes=6)
-    elif model_name == "multimodal_map_gru":
-        model = GraphNetworkAttentionMultimodalWithMapGRU(num_modes=6)
-    else:
-        parser.error("Expected a map-aware MLP or GRU checkpoint")
-    model = model.to(device)
-    model.load_state_dict(
-        torch.load(args.checkpoint, map_location=device, weights_only=True),
-        strict=True,
-    )
-    model.eval()
-    ades, fdes = [], []
-    with torch.no_grad():
-        for batch in loader:
-            batch = batch.to(device)
-            ade, fde = multimodal_metrics(model(batch), batch.y.reshape(-1, 12, 2))
-            ades.extend(ade.cpu().tolist())
-            fdes.extend(fde.cpu().tolist())
-    return np.asarray(ades), np.asarray(fdes), displacements, angles, invalid, len(samples)
 
 
 def bin_and_report(args, model_name, seed, ades, fdes, displacements, angles, invalid, n_samples, top1=None):
