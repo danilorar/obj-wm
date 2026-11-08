@@ -753,9 +753,9 @@ def render_clip(runs, out_mp4, out_gif, title, before_s=3.9, after_s=2.1, slow_s
 
 # ---------------------------------------------------------------- top-down-only clip mode
 
-W_TD, H_TD = 1280, 540
+W_TD, H_TD = 960, 540
 MARGIN_TD, GAP_TD = 12, 16
-PANEL_W_TD = (W_TD - 2 * MARGIN_TD - GAP_TD) // 2   # 626
+PANEL_W_TD = (W_TD - 2 * MARGIN_TD - GAP_TD) // 2   # 460
 HEAD_H_TD = 50
 TOP_H_TD = 400
 Y_TOP_TD = HEAD_H_TD                                  # 50
