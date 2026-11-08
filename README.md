@@ -4,13 +4,13 @@ Predicts how nearby road users react to our car's planned path, and uses those p
 
 ![mini scene-1094: CV planner hits a rider, WM planner keeps 0.83 m clearance](assets/clip_1094.gif)
 
-*mini scene-1094 (development). Rider enters from the left. CV crashed into the rider. WM keeps 0.83 m — it decelerates 3.5 s earlier.*
+*mini scene-1094 (development). Rider enters from the left. CV crashed into the rider. WM keeps 0.83 m; it decelerates 3.5 s earlier.*
 
 ## How it works
 
 - **World model:** scene transformer predicting road-user futures conditioned on our candidate plan; trained with 20% plan dropout so it also works without one.
-- **Planner:** sampling-based MPC — 35 candidate plans scored against predicted futures for risk, progress, comfort and lane offset; re-planned every 0.5 s.
-- **Simulator:** nuScenes scenes in MetaDrive/ScenarioNet; other road users replay the log or react with IDM.
+- **Planner:** sampling-based MPC: 35 candidate plans scored against predicted futures for risk, progress, comfort and lane offset; re-planned every 0.5 s.
+- **Simulator:** nuScenes scenes in MetaDrive/ScenarioNet; other road users replay the log or react with [IDM](https://en.wikipedia.org/wiki/Intelligent_driver_model) (a standard car-following model).
 - **Evaluation:** pre-registered closed-loop test on 146 held-out nuScenes scenes with reactive road users.
 
 ## Results: closed loop on 146 test scenes
