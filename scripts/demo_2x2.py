@@ -756,11 +756,7 @@ def render_clip(runs, out_mp4, out_gif, title, before_s=3.9, after_s=2.1, slow_s
 W_TD, H_TD = 960, 540
 MARGIN_TD, GAP_TD = 12, 16
 PANEL_W_TD = (W_TD - 2 * MARGIN_TD - GAP_TD) // 2   # 460
-HEAD_H_TD = 50
-TOP_H_TD = 400
-Y_TOP_TD = HEAD_H_TD                                  # 50
-Y_STRIP_TD = HEAD_H_TD + TOP_H_TD                     # 450
-SUBTITLE_TD = {"CV": "constant-velocity predictions", "WM": "learned world model"}
+TOP_H_TD = H_TD                                       # 540 — panels fill full height, no header or strip
 
 
 def simulate_topdown(data_dir, index, predictor, reactive, max_steps=None):
@@ -833,123 +829,75 @@ def _wm_earlier_s(runs):
     return None
 
 
-def compose_topdown(runs, tops, colors, k, f, t_end, d_max, scene_label, labels):
-    """Single top-down-only frame: two panels side by side + header + distance strip."""
-    import numpy as np
+def compose_topdown(runs, tops, colors, k, f, labels):
+    """Single top-down-only frame: two panels side by side, no header or strip."""
     from PIL import Image, ImageDraw
     canvas = Image.new("RGB", (W_TD, H_TD), BG)
     dr = ImageDraw.Draw(canvas, "RGBA")
-    f_hdr = font(18, "SemiBold")
-    f_sub = font(13)
+    f_lbl = font(15, "SemiBold")
     f_sml = font(13)
-    f_tim = font(18, "Medium")
     t_now = 0.0
     for c, name in enumerate(("CV", "WM")):
         run = runs[name]
         kk = min(k, len(run["steps"]) - 1)
         st = frame_state(run["steps"], kk, f if kk == k else 0.0)
         t_now = st["t"]
-        lay = layers(st, colors)
+        _, chosen, preds, near = layers(st, colors)   # drop candidate plan fan
+        lay = (None, chosen, preds, near)
         x0 = MARGIN_TD + c * (PANEL_W_TD + GAP_TD)
-        # header
-        dr.ellipse([x0 + 4, 18, x0 + 14, 28], fill=PLANNER_RGB[name])
-        dr.text((x0 + 22, 23), f"{name} planner", font=f_hdr, fill=TEXT, anchor="lm")
-        x_sub = x0 + 22 + dr.textlength(f"{name} planner", font=f_hdr) + 10
-        dr.text((x_sub, 24), SUBTITLE_TD[name], font=f_sub, fill=MUTED, anchor="lm")
-        # top-down panel
         trail = [s_["pose"][:2] for s_ in run["steps"][:kk + 1]] + [st["pose"][:2]]
         td_img = Image.fromarray(tops[name].frame(st, colors, lay, trail, run["meta"]["ego_size"]))
-        framed_paste(canvas, td_img, (x0, Y_TOP_TD))
-        # speed/distance pill
-        closest = min(s_["near_d"] for s_ in run["steps"][:kk + 1])
-        pill(dr, (x0 + 12, Y_TOP_TD + 12),
-             f"speed {st['speed']:.1f} m/s   ·   closest so far {closest:.2f} m", f_sml)
+        framed_paste(canvas, td_img, (x0, 0))
+        # planner label pill (top-left corner, overlaid on panel)
+        pill(dr, (x0 + 12, 16), name, f_lbl, anchor="lm",
+             fg=(255, 255, 255), bg=(*PLANNER_RGB[name], 220))
+        # contact indicator
         if st["collided"]:
-            pill(dr, (x0 + PANEL_W_TD - 12, Y_TOP_TD + 12), "contact",
+            pill(dr, (x0 + PANEL_W_TD - 12, 16), "contact",
                  f_sml, fg=(255, 255, 255), bg=(200, 50, 50, 230), anchor="r")
-        # scale bar (top-right of top-down panel)
+        # scale bar (top-right corner)
         px_per_m = PANEL_W_TD / (2 * tops[name].half_w)
-        bar_m = 10
-        bpx = bar_m * px_per_m
-        bx, by = x0 + PANEL_W_TD - 20 - bpx, Y_TOP_TD + 24
+        bpx = 10 * px_per_m
+        bx, by = x0 + PANEL_W_TD - 20 - bpx, 24
         dr.rounded_rectangle([bx - 46, by - 10, bx + bpx + 6, by + 8], 6, fill=(255, 255, 255, 215))
         dr.line([(bx, by), (bx + bpx, by)], fill=MUTED, width=2)
-        dr.text((bx - 6, by), f"{bar_m} m", font=f_sml, fill=MUTED, anchor="rm")
+        dr.text((bx - 6, by), "10 m", font=f_sml, fill=MUTED, anchor="rm")
         # on-video labels (time-gated, panel-specific)
         for lbl in labels:
             if lbl.get("panel", "both") not in (name, "both"):
                 continue
             if not (lbl["t0"] <= t_now < lbl["t1"]):
                 continue
-            ly = Y_TOP_TD + lbl.get("y_offset", TOP_H_TD // 2)
+            ly = lbl.get("y_offset", TOP_H_TD // 2)
             lx = x0 + PANEL_W_TD // 2
             pill(dr, (lx, ly), lbl["text"], font(15, "SemiBold"), anchor="m",
                  fg=lbl.get("fg", TEXT), bg=lbl.get("bg", (255, 255, 255, 230)))
-    # top bar: time right, scene label centre
-    dr.text((W_TD - MARGIN_TD, 24), f"t = {t_now:4.1f} s", font=f_tim, fill=TEXT, anchor="rm")
-    dr.text((W_TD // 2, 24), scene_label, font=f_sub, fill=MUTED, anchor="mm")
-    # distance strip
-    dists = {n: [s_["near_d"] for s_ in r["steps"]] for n, r in runs.items()}
-    strip_h_td = H_TD - Y_STRIP_TD
-    framed_paste(canvas, strip_panel(dists, t_now, t_end, d_max, W_TD - 2 * MARGIN_TD, height=strip_h_td),
-                 (MARGIN_TD, Y_STRIP_TD))
     return canvas
 
 
-def render_clip_topdown(runs, out_gif, scene_label, labels=(), before_s=4.5, after_s=2.5,
-                        slow_s=0.5, freeze_s=1.0):
-    """Short top-down-only clip around the CV planner's closest moment, with freeze-frame and GIF output."""
+def render_clip_topdown(runs, out_gif, labels=(), before_s=4.5, after_s=2.5):
+    """Short top-down-only clip around the CV planner's closest moment."""
     import numpy as np
-    from PIL import Image, ImageDraw
     colors = assign_colors(runs)
     n = min(len(r["steps"]) for r in runs.values())
     kc = int(np.argmin([s["near_d"] for s in runs["CV"]["steps"]]))
     k0 = max(0, kc - int(round(before_s * 10)))
     k1 = min(n - 1, kc + int(round(after_s * 10)))
-    ks = int(round(slow_s * 10))
-    mins = {name: r["metrics"]["min_dist_m"] for name, r in runs.items()}
     tops = {name: TopDown(r["features"], (PANEL_W_TD, TOP_H_TD)) for name, r in runs.items()}
-    big = font(52, "SemiBold")
-    mid = font(21, "Medium")
-
-    def overlay(img, slow, freeze):
-        im = Image.fromarray(img)
-        dr = ImageDraw.Draw(im, "RGBA")
-        if slow:
-            pill(dr, (W_TD // 2, H_TD - 54), "0.5× slow motion", mid, anchor="m")
-        if freeze:
-            cv_str = "collision" if mins["CV"] == 0.0 else f"{mins['CV']:.2f} m"
-            text = f"CV {cv_str}   ·   WM {mins['WM']:.2f} m"
-            bb = dr.textbbox((0, 0), text, font=big)
-            bw, bh = bb[2] - bb[0] + 72, bb[3] - bb[1] + 96
-            x, y = (W_TD - bw) // 2, (H_TD - bh) // 2
-            dr.rounded_rectangle((x, y, x + bw, y + bh), 20,
-                                   fill=(255, 255, 255, 240), outline=BORDER, width=2)
-            dr.text((W_TD // 2, y + 26), "closest distance to any road user", font=mid, fill=MUTED, anchor="mt")
-            dr.text((W_TD // 2, y + bh - 24), text, font=big, fill=TEXT, anchor="mb")
-        return np.ascontiguousarray(np.asarray(im))
-
     try:
-        t_end = n * 0.1
         gif_frames = []
         for k in range(k0, k1 + 1):
-            slow = abs(k - kc) < ks
-            for f in ((0.0, 0.25, 0.5, 0.75) if slow else (0.0, 0.5)):
+            for f in (0.0, 0.5):
                 if k == k1 and f > 0:
                     continue
-                base = np.asarray(compose_topdown(runs, tops, colors, k, f, t_end,
-                                                   d_max_of(runs), scene_label, labels))
-                is_closest = k == kc and f == 0.0
-                reps = [(False, 1)] + ([(True, int(freeze_s * FPS))] if is_closest else [])
-                for freeze, count in reps:
-                    img = overlay(base, slow, freeze)
-                    for _ in range(count):
-                        gif_frames.append(img)
+                frame = np.asarray(compose_topdown(runs, tops, colors, k, f, labels))
+                gif_frames.append(frame)
         out_gif.parent.mkdir(parents=True, exist_ok=True)
         size = write_gif(gif_frames, out_gif)
         return dict(gif=str(out_gif), gif_size=list(size), gif_mb=out_gif.stat().st_size / 1e6,
                     closest_step=kc, t_closest=kc * 0.1,
-                    min_cv=mins["CV"], min_wm=mins["WM"])
+                    min_cv=runs["CV"]["metrics"]["min_dist_m"],
+                    min_wm=runs["WM"]["metrics"]["min_dist_m"])
     finally:
         for t in tops.values():
             t.close()
@@ -1083,7 +1031,7 @@ def main():
                     t0=max(0.0, t_closest - delta - 1.0), t1=t_closest,
                     panel="WM", y_offset=TOP_H_TD // 2 + 50
                 ))
-        info = render_clip_topdown(runs, args.out, args.scene_label, labels)
+        info = render_clip_topdown(runs, args.out, labels)
         print(info, flush=True)
         return
 
