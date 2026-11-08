@@ -629,7 +629,7 @@ def compose(runs, tops, colors, k, f, t_end, d_max, title):
     return canvas
 
 
-def write_gif(frames, gif, gif_mb=10.0, n_scene_colors=104):
+def write_gif(frames, gif, gif_mb=10.0, n_scene_colors=104, duration=200):
     """GIF with one global palette: exact theme colours + colours fitted to sample frames. Downscaled to <= gif_mb."""
     import numpy as np
     from PIL import Image
@@ -643,7 +643,7 @@ def write_gif(frames, gif, gif_mb=10.0, n_scene_colors=104):
         pal_img = Image.new("P", (1, 1))
         pal_img.putpalette(pal + [0] * (768 - len(pal)))
         g = [im.quantize(palette=pal_img, dither=Image.Dither.NONE) for im in small]
-        g[0].save(gif, save_all=True, append_images=g[1:], duration=200, loop=0)
+        g[0].save(gif, save_all=True, append_images=g[1:], duration=duration, loop=0)
         if gif.stat().st_size / 1e6 <= gif_mb:
             break
     return size
@@ -893,7 +893,7 @@ def render_clip_topdown(runs, out_gif, labels=(), before_s=4.5, after_s=2.5):
                 frame = np.asarray(compose_topdown(runs, tops, colors, k, f, labels))
                 gif_frames.append(frame)
         out_gif.parent.mkdir(parents=True, exist_ok=True)
-        size = write_gif(gif_frames, out_gif)
+        size = write_gif(gif_frames, out_gif, duration=50)   # 50 ms/frame × 20 frames/sim-s = real-time
         return dict(gif=str(out_gif), gif_size=list(size), gif_mb=out_gif.stat().st_size / 1e6,
                     closest_step=kc, t_closest=kc * 0.1,
                     min_cv=runs["CV"]["metrics"]["min_dist_m"],

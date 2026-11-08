@@ -52,11 +52,9 @@ The mini-only model is weak (val minADE₆ ≈ 3.5 m vs 1.24 m on full data) —
 
 ## Future work
 
-- A physically plausible reaction to our plan, checked with the same follower / placebo test.
-- Reactive road users, stage 2: swept ego footprint, merge anticipation, reacting pedestrians and cyclists.
-- More predicted road users than 16 (32 / 63 slots were tested; see EXPERIMENTS.md).
-- Several seeds per variant on one machine before any val threshold is applied.
-- Smoother planning via temporally consistent WM predictions; planner-side fixes (switching cost, veto hysteresis, risk smoothing, risk-aware hold) were tested and each traded chattering for a safety cost.
+- The car behind us barely brakes even when we do. Getting the world model to predict a physically plausible reaction to our plan is the main open problem.
+- Only vehicles react to our car; pedestrians and cyclists replay the log. Stage 2 would add merge anticipation and proper footprint handling.
+- The WM planner makes 1.4× more stop-go oscillations than CV. Every planner-side fix we tried traded smoothness for safety; it needs temporally consistent predictions to fix properly.
 
 ## Data
 
