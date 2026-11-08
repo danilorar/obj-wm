@@ -13,19 +13,16 @@ wm/
 │   ├── lane_tokens.py          v2: map lanes -> 20 m lane-segment tokens
 │   ├── dataset_v2.py           v2: processed sample -> fixed-size agent / lane tensors
 │   ├── models_v2.py            v2: encoders, scene transformer, decoder, losses, V2Predictor
-│   ├── models.py               v1 models (GATv2 + MLP / GRU decoders)
-│   ├── graph_utils.py          v1: sample -> PyTorch Geometric graph
-│   └── training_utils.py       shared: seeds, manifests, multimodal_metrics, v1 train loop
+│   └── training_utils.py       shared: seeds, manifests, multimodal_metrics
 ├── scripts/                    command-line entry points
 │   ├── build_processed_dataset.py   nuScenes -> data/processed(_v2)/*.pkl
 │   ├── make_anchors.py              endpoint anchors -> assets/anchors*.npy
-│   ├── train_model.py               train / evaluate v1 and v2
+│   ├── train_model.py               train / evaluate v2
 │   ├── analyze_v2.py                open-loop analysis: turn bins, CV baseline, follower / placebo test, examples
 │   └── sim_check.py                 simulator entry point: convert, replay, plan, evaluate, reactive checks
 ├── sim/                        planner.py (plans, tracker), closed_loop.py (episode loop, costs, metrics,
 │   │                           reactive road users), adapter.py (sim -> model inputs)
 │   └── scene_lists/            dev100.json; reserved, never run: test_v3.json
-├── plots/                      v1 plotting (qualitative figures, the v1 README GIF)
 ├── assets/                     anchors.npy (k-means), anchors_angle.npy (turn-spread), README figures and GIF
 ├── docs/                       CODE_GUIDE.md (this file), EXPERIMENTS.md (every run + pre-registrations),
 │                               reactive_agents_design.md, womd_feasibility.md, architecture.png
@@ -118,7 +115,7 @@ Full model:
   The ego-plan token is dropped per sample with p = 0.5 in training; `plan=True/False` forces it on/off.
   With every option off, the model is the original target-only v2 (bit-identical outputs).
 
-### `scripts/train_model.py` (v2 parts)
+### `scripts/train_model.py`
 - `evaluate_v2(model, loader, device, plan)`: returns a dict: target minADE₆ / minFDE₆ (same code as v1),
   miss rate (minFDE₆ > 2 m, endpoint definition), top-1 ADE / FDE (highest-score mode), mode-win shares;
   for multi-agent models also all-agent and **moving-agent** (> 1 m from the current position in history or
