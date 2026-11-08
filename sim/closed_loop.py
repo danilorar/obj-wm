@@ -13,6 +13,17 @@ Cost per plan (lowest wins), weights FROZEN on 2026-11-06 after the 10-scene min
     col * risk + progress_w * (-progress) + comfort_w * comfort + offset_w * offset^2
     hard veto: a plan whose risk from collisions in the first VETO["horizon_s"] = 2 s exceeds VETO["risk"] = 0.3
     is not allowed (if every plan is vetoed, the one with the lowest early risk is taken).
+    planner v2.1 (run_scene w_switch > 0, default 0 = v2): switching cost in the receding-horizon choice,
+    + w_switch * (|v_p - v_prev| + |offset_p - offset_prev|) with (v, offset) the plan's target speed [m/s] and lateral
+    offset [m] and prev = the plan chosen at the previous planning step. Added after the veto: a vetoed plan stays
+    vetoed (never kept for being the previous plan), so the veto is still absolute.
+    veto hysteresis (run_scene veto_unblock, default None = off): a plan cell (target speed, offset) vetoed at the
+    previous planning step stays vetoed until its early risk drops below veto_unblock (e.g. block > 0.3, unblock < 0.2).
+    risk smoothing (run_scene risk_smooth, default off): the cost's risk term per plan cell is max(risk now, raw risk
+    of the same cell at the previous planning step) (one step of memory; the veto still uses the unsmoothed early risk).
+    risk-aware switching (run_scene speedup_hold N, default 0 = off): a cell with a higher target speed than the previous
+    chosen plan may be chosen only if its raw risk was < SPEEDUP_RISK now and at each of the previous N planning steps;
+    not applied at a step where it would leave no choosable plan. The veto is unchanged.
     risk     = sum_agents sum_k p_k * 1[overlap at some t] / (1 + t_first), every 0.1 s; footprints from each
                object's real size (and the ego's): ceil(length / width) circles that fully cover the box,
                r = sqrt((w/2)^2 + (L/(2n))^2) (circle_footprint);
@@ -34,6 +45,7 @@ from sim.planner import DT, OFFSETS, SPEEDS, Tracker, generate_plans, reference_
 
 WEIGHTS = dict(col=500.0, progress=1.0, comfort=0.1, offset=0.5)       # frozen
 VETO = dict(risk=0.3, horizon_s=2.0)                                     # frozen
+SPEEDUP_RISK = 0.05                     # risk-aware switching (Amendment C): "low risk" for a speed-up
 VEHICLE_TYPES = ("vehicle.",)
 STEP_TIMES = np.arange(1, 13) * 0.5            # model output times
 DENSE_TIMES = np.arange(0, 61) * DT            # 0 ... 6 s
@@ -214,8 +226,11 @@ def collision_risk(dense_plans, paths, probs, current, yaw, sizes, ego_size, dev
     return risk.cpu().numpy(), early.cpu().numpy(), per_agent.cpu().numpy()
 
 
-def plan_costs(scene, ref, dense_plans, meta, paths, probs, ids, ego_size, weights=WEIGHTS, device="cpu"):
-    """Cost terms per plan; dense_plans (P, 61, 4) world (x, y, yaw, v) from generate_plans."""
+def plan_costs(scene, ref, dense_plans, meta, paths, probs, ids, ego_size, weights=WEIGHTS, device="cpu",
+               blocked_prev=None, veto_unblock=None, risk_smooth=False, risk_prev=None):
+    """Cost terms per plan; dense_plans (P, 61, 4) world (x, y, yaw, v) from generate_plans.
+    blocked_prev (P,) bool + veto_unblock: veto hysteresis (cells vetoed last step stay vetoed until early < unblock).
+    risk_smooth: cost risk = max(risk, risk_prev) (risk_prev = raw risk per cell at the previous step, or None)."""
     P = len(dense_plans)
     by_id = dict(zip(*agent_states(scene)))
     ex, ey, eyaw = scene.ego[:3]
@@ -246,15 +261,23 @@ def plan_costs(scene, ref, dense_plans, meta, paths, probs, ids, ego_size, weigh
     jerk = np.diff(acc_long, axis=1) / DT
     comfort = (acc ** 2).mean(1) + (jerk ** 2).mean(1)
     offset2 = np.array([m[1] for m in meta]) ** 2
+    risk_raw = risk
+    if risk_smooth and risk_prev is not None:
+        risk = np.maximum(risk, risk_prev)
     total = weights["col"] * risk - weights["progress"] * progress + weights["comfort"] * comfort + \
         weights["offset"] * offset2
     vetoed = early > VETO["risk"]
+    if veto_unblock is not None and blocked_prev is not None:
+        vetoed = vetoed | (blocked_prev & (early >= veto_unblock))
     if vetoed.all():                                  # nothing is allowed: take the least risky in the first 2 s
         total = np.where(early == early.min(), total, np.inf)
     else:
         total = np.where(vetoed, np.inf, total)
-    return total, dict(risk=risk, early_risk=early, progress=progress, comfort=comfort, offset2=offset2,
-                       vetoed=vetoed.astype(float)), agent_risk
+    terms = dict(risk=risk, early_risk=early, progress=progress, comfort=comfort, offset2=offset2,
+                 vetoed=vetoed.astype(float))
+    if risk_smooth:
+        terms["risk_raw"] = risk_raw
+    return total, terms, agent_risk
 
 
 def box(x, y, yaw, length, width):
@@ -333,7 +356,8 @@ CUT_IN_S = 2.0      # reactive mode: hit from behind within 2 s after the ego en
 
 def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_steps=5, shadow=None, viz=None,
               nearby_radius=30.0, device="cuda", reactive=False, drive_log_scale=None, viz_follow=None,
-              viz_title=None, viz_focus=None, start_step=0, step_hook=None, max_steps=None):
+              viz_title=None, viz_focus=None, start_step=0, step_hook=None, max_steps=None,
+              w_switch=0.0, veto_unblock=None, risk_smooth=False, speedup_hold=0):
     """One closed-loop episode (or the logged ego with expert=True). Returns metrics and the chosen-plan log.
 
     start_step: the ego follows its log until this step (history fills up), then the planner drives from the logged
@@ -341,7 +365,13 @@ def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_st
     shadow: a second predictor run on the chosen plan only (e.g. the WM during a CV run), for diagnostics.
     viz: GIF path for the fixed-camera planning view (one frame per planning step).
     step_hook: called after every sim step with the current state and the last plan (demo video; default off).
-    max_steps: stop after this many sim steps (short test renders)."""
+    max_steps: stop after this many sim steps (short test renders).
+    w_switch: planner v2.1 switching cost (see the module docstring); 0 = the v2 planner, bit for bit.
+    veto_unblock: veto hysteresis threshold (None = off, the v2 planner).
+    risk_smooth: risk smoothing max(risk_t, risk_t-1) per plan cell (False = off, the v2 planner).
+    speedup_hold: risk-aware switching, N previous planning steps of low risk needed for a speed-up (0 = off).
+    Every planning step also logs the previous plan's cell at the new step (prev_vetoed, prev_total, prev_terms,
+    all_vetoed) for the plan-change diagnosis (scripts/planner_metrics.py changes); this does not change the choice."""
     import time
     from sim.adapter import add_connector_polygons
     scenario = env.engine.data_manager.current_scenario
@@ -356,7 +386,7 @@ def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_st
     last_plan = None
     poses, speeds, offroad, md_crash, frames, chosen_log, hits, t_plan = [], [], 0, 0, [], [], {}, []
     pred_log, coverage, viz_frames, t_parts, near_d, near_ttc, track_err = [], [], [], [], [], [], []
-    plan, plan_t = None, 0.0
+    plan, plan_t, blocked, risk_prev, risk_hist = None, 0.0, None, None, []
     wm = predictor if getattr(predictor, "name", "") == "WM" else shadow
     for step in range(steps):
         a = env.agent
@@ -387,7 +417,27 @@ def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_st
                 paths, probs, ids = predictor.predict(scene, sparse)
                 t_pred = time.perf_counter()
                 total, terms, agent_risk = plan_costs(scene, ref, dense, meta, paths, probs, ids, ego_size, weights,
-                                                      device)
+                                                      device, blocked, veto_unblock, risk_smooth, risk_prev)
+                blocked = terms["vetoed"].astype(bool)
+                if risk_smooth:
+                    risk_prev = terms["risk_raw"]
+                switch = None
+                if w_switch > 0 and chosen_log:          # v2.1: cost of leaving the previous plan (veto stays absolute)
+                    prev = chosen_log[-1]
+                    switch = np.array([abs(sp - prev["speed"]) + abs(of - prev["offset"]) for sp, of in meta])
+                    total = total + w_switch * switch    # inf (vetoed) + finite = inf
+                hold_info = None
+                if speedup_hold > 0:                     # Amendment C: speed-ups only after N + 1 low-risk steps
+                    raw = terms.get("risk_raw", terms["risk"])
+                    if chosen_log:
+                        low = np.all([h < SPEEDUP_RISK for h in risk_hist[-speedup_hold:] + [raw]], axis=0)
+                        faster = np.array([sp for sp, _ in meta]) > chosen_log[-1]["speed"]
+                        held = np.where(faster & ~low, np.inf, total)
+                        applied = bool(np.isfinite(held).any())
+                        hold_info = dict(n_held=int((faster & ~low & np.isfinite(total)).sum()), hold_applied=applied)
+                        if applied:
+                            total = held
+                    risk_hist.append(raw)
                 k = int(np.argmin(total))
                 plan, plan_t = dense[k], 0.0
                 t_plan.append(1000 * (time.perf_counter() - t0))
@@ -397,6 +447,17 @@ def run_scene(env, predictor, weights=WEIGHTS, gif=None, expert=False, replan_st
                              n_zero_risk=int((terms["risk"] < 1e-6).sum()),
                              agent_risk_chosen={i: float(r[k]) for i, r in agent_risk.items() if r[k] > 1e-6},
                              **{n: float(t_[k]) for n, t_ in terms.items() if n != "vetoed"})
+                if switch is not None:
+                    entry["switch"] = float(switch[k])
+                entry["all_vetoed"] = bool(terms["vetoed"].all())
+                if hold_info is not None:
+                    entry.update(hold_info)
+                if chosen_log:                           # diagnosis: the previous plan's cell at this step
+                    j = meta.index((chosen_log[-1]["speed"], chosen_log[-1]["offset"]))
+                    entry.update(prev_vetoed=bool(terms["vetoed"][j]), prev_total=float(total[j]),
+                                 prev_terms={n: float(t_[j]) for n, t_ in terms.items() if n != "vetoed"})
+                    if switch is not None:
+                        entry["prev_terms"]["switch"] = float(switch[j])
                 chosen_log.append(entry)
                 if step_hook is not None:
                     last_plan = dict(step=step, dense=dense, k=k, paths=paths[k], probs=probs[k], ids=list(ids),

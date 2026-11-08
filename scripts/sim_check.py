@@ -491,11 +491,16 @@ def follow(index, replan_steps=5):
 
 
 def plan(predictor_names, scene_indices, gif_indices, viz_indices, checkpoint, out_json, data_dir=None, quiet=False,
-         reactive="off", device="cuda", t0=0.0, shadow_wm=True):
+         reactive="off", device="cuda", t0=0.0, shadow_wm=True, w_switch=0.0, veto_unblock=None,
+         risk_smooth=False, speedup_hold=0):
     """Closed-loop planners (CV and/or WM) on the converted mini scenes + the logged ego ("expert").
     During CV runs the WM runs in shadow mode (chosen plan only) so every at-fault collision can be compared
     with what the WM would have predicted (shadow_wm=False: no WM is loaded for CV runs).
-    t0: start time [s]; the ego follows its log until t0, metrics count from t0 (run_scene start_step)."""
+    t0: start time [s]; the ego follows its log until t0, metrics count from t0 (run_scene start_step).
+    w_switch: planner v2.1 switching cost for the CV and WM planners (0 = v2 planner).
+    veto_unblock: veto hysteresis (vetoed plans unblock only at early risk < veto_unblock; None = off).
+    risk_smooth: per-cell risk smoothing max(risk_t, risk_t-1) in the cost (False = off).
+    speedup_hold: risk-aware switching N (speed-ups need N previous low-risk planning steps; 0 = off)."""
     os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
     import json
     import numpy as np
@@ -542,7 +547,9 @@ def plan(predictor_names, scene_indices, gif_indices, viz_indices, checkpoint, o
                 gif = out_dir / f"plan_{tag}_scene{i}.gif" if (i in gif_indices and not expert) else None
                 viz = out_dir / f"planview_{tag}_scene{i}.gif" if (i in viz_indices and not expert) else None
                 m, chosen = run_scene(env, predictor, gif=gif, expert=expert, shadow=shadow, viz=viz, device=device,
-                                      reactive=reactive == "idm", start_step=int(round(t0 * 10)))
+                                      reactive=reactive == "idm", start_step=int(round(t0 * 10)), w_switch=w_switch,
+                                      veto_unblock=veto_unblock, risk_smooth=risk_smooth,
+                                      speedup_hold=speedup_hold)
                 m["chosen_plans"], m["index"] = chosen, i
                 rows.append(m)
                 print(f"  {label:14s} {m['scene']}: at-fault {m['at_fault']}, off-road steps {m['offroad_steps']}, "
@@ -602,12 +609,22 @@ def plan(predictor_names, scene_indices, gif_indices, viz_indices, checkpoint, o
             print(f"  {label:14s} {m['scene']}: " + ", ".join(
                 f"{k} {np.mean([c[k] for c in ch]):.2f}" for k in ("speed", "offset", "risk", "progress", "comfort",
                                                                    "offset2", "total")))
-    out_json.write_text(json.dumps({"weights": WEIGHTS, "results": results}, indent=1, default=str))
+    out = {"weights": WEIGHTS, "results": results}
+    if w_switch:
+        out["w_switch"] = w_switch
+    if veto_unblock is not None:
+        out["veto_unblock"] = veto_unblock
+    if risk_smooth:
+        out["risk_smooth"] = True
+    if speedup_hold:
+        out["speedup_hold"] = speedup_hold
+    out_json.write_text(json.dumps(out, indent=1, default=str))
     print(f"saved {out_json}")
     return results
 
 
-def evaluate_test(data_dir, checkpoint, out_dir, seed=0, compare=None, reactive="off"):
+def evaluate_test(data_dir, checkpoint, out_dir, seed=0, compare=None, reactive="off", w_switch=0.0,
+                  veto_unblock=None, risk_smooth=False, speedup_hold=0):
     """Closed-loop test: CV and WM planners + the expert on every scene of data_dir (frozen weights), then
     paired statistics, a per-map breakdown, coverage / timing, the 5 worst scenes per planner and a spot-check
     of the collision classification (both with GIFs, from a second deterministic pass with rendering on)."""
@@ -615,7 +632,8 @@ def evaluate_test(data_dir, checkpoint, out_dir, seed=0, compare=None, reactive=
     import numpy as np
     from scipy.stats import wilcoxon
     out_dir.mkdir(parents=True, exist_ok=True)
-    res = plan(["cv", "wm"], [], [], [], checkpoint, out_dir / "results.json", data_dir, reactive=reactive)
+    res = plan(["cv", "wm"], [], [], [], checkpoint, out_dir / "results.json", data_dir, reactive=reactive,
+               w_switch=w_switch, veto_unblock=veto_unblock, risk_smooth=risk_smooth, speedup_hold=speedup_hold)
     cv, wm, ex = res["CV planner"], res["WM planner"], res["expert (log)"]
     rng = np.random.default_rng(seed)
 
@@ -776,7 +794,8 @@ def evaluate_test(data_dir, checkpoint, out_dir, seed=0, compare=None, reactive=
     for tag in ("cv", "wm"):
         idx = sorted({m["index"] for m in worst_sel[tag]} | {e[1] for e in spot if e[0] == tag})
         if idx:
-            r = plan([tag], idx, idx, idx, checkpoint, gif_dir / f"rerun_{tag}.json", data_dir, reactive=reactive)
+            r = plan([tag], idx, idx, idx, checkpoint, gif_dir / f"rerun_{tag}.json", data_dir, reactive=reactive,
+                     w_switch=w_switch, veto_unblock=veto_unblock, risk_smooth=risk_smooth, speedup_hold=speedup_hold)
             rerun[tag] = {m["index"]: m for m in r[("CV" if tag == "cv" else "WM") + " planner"]}
     first = {"cv": {m["index"]: m for m in cv}, "wm": {m["index"]: m for m in wm}}
     same = all(rerun[t][i]["at_fault"] == first[t][i]["at_fault"] and rerun[t][i]["not_at_fault"] == first[t][i]["not_at_fault"]
@@ -1173,6 +1192,11 @@ if __name__ == "__main__":
     p.add_argument("--data", default=str(PROJECT_ROOT / "sim/scenarios/nuscenes_test150"))
     p.add_argument("--checkpoint", default=str(PROJECT_ROOT / "checkpoints/v2_d_rerun/v2_seed42_best.pth"))
     p.add_argument("--out", type=Path, default=OUT_DIR / "test150")
+    p.add_argument("--w-switch", type=float, default=0.0, help="planner v2.1 switching cost (0 = v2 planner)")
+    p.add_argument("--veto-unblock", type=float, help="veto hysteresis: unblock at early risk < this (default off)")
+    p.add_argument("--risk-smooth", action="store_true", help="cost risk = max(risk_t, risk_t-1) per plan (default off)")
+    p.add_argument("--speedup-hold", type=int, default=0,
+                   help="risk-aware switching: speed-ups need risk < 0.05 now and for N previous planning steps (0 = off)")
     p = sub.add_parser("hesitation", help="stop-go / chatter metrics from results.json traces (no simulation)")
     p.add_argument("results", nargs="+", type=Path)
     p.add_argument("--out", type=Path)
@@ -1189,6 +1213,11 @@ if __name__ == "__main__":
     p.add_argument("--device", default="cuda", help="device for the WM and the collision cost (cuda / cpu)")
     p.add_argument("--t0", type=float, default=0.0, help="start time [s]: the ego follows its log until t0")
     p.add_argument("--no-shadow", action="store_true", help="CV runs without the shadow WM (no WM loaded)")
+    p.add_argument("--w-switch", type=float, default=0.0, help="planner v2.1 switching cost (0 = v2 planner)")
+    p.add_argument("--veto-unblock", type=float, help="veto hysteresis: unblock at early risk < this (default off)")
+    p.add_argument("--risk-smooth", action="store_true", help="cost risk = max(risk_t, risk_t-1) per plan (default off)")
+    p.add_argument("--speedup-hold", type=int, default=0,
+                   help="risk-aware switching: speed-ups need risk < 0.05 now and for N previous planning steps (0 = off)")
     p = sub.add_parser("follow")
     p.add_argument("--index", type=int, default=0, help="scenario index (0 = scene-0061)")
     p = sub.add_parser("match")
@@ -1203,7 +1232,8 @@ if __name__ == "__main__":
     elif args.step == "plan":
         plan(args.predictor, args.scenes, args.gif, args.viz, args.checkpoint,
              args.out or OUT_DIR / f"plan_{'_'.join(args.predictor)}.json", args.data, reactive=args.reactive,
-             device=args.device, t0=args.t0, shadow_wm=not args.no_shadow)
+             device=args.device, t0=args.t0, shadow_wm=not args.no_shadow, w_switch=args.w_switch,
+             veto_unblock=args.veto_unblock, risk_smooth=args.risk_smooth, speedup_hold=args.speedup_hold)
     elif args.step == "showcase":
         if "test150" in args.data:
             raise SystemExit("showcase is for development scenes only")
@@ -1219,7 +1249,9 @@ if __name__ == "__main__":
         if args.idm:
             from sim import closed_loop as _cl
             _cl.IDM.update({k: float(v) for k, v in (kv.split("=") for kv in args.idm.split(",") if kv)})
-        evaluate_test(Path(args.data), args.checkpoint, args.out, compare=args.compare, reactive=args.reactive)
+        evaluate_test(Path(args.data), args.checkpoint, args.out, compare=args.compare, reactive=args.reactive,
+                      w_switch=args.w_switch, veto_unblock=args.veto_unblock, risk_smooth=args.risk_smooth,
+                      speedup_hold=args.speedup_hold)
     elif args.step == "follow":
         follow(args.index)
     elif args.step == "match":
