@@ -8,9 +8,9 @@ Predicts how nearby road users react to our car's planned path, and uses those p
 
 ## How it works
 
-- **World model:** scene transformer predicting road-user futures conditioned on our candidate plan; trained with 20% plan dropout so it also works without one.
+- **World model:** [scene transformer](docs/architecture.png) predicting road-user futures conditioned on our candidate plan; trained with 20% plan dropout so it also works without one.
 - **Planner:** sampling-based MPC: 35 candidate plans scored against predicted futures for risk, progress, comfort and lane offset; re-planned every 0.5 s.
-- **Simulator:** nuScenes scenes in MetaDrive/ScenarioNet; other road users either *replay the log* (follow their recorded path, ignoring our car) or are *reactive* — they adjust speed with [IDM](https://en.wikipedia.org/wiki/Intelligent_driver_model) when our car gets in the way.
+- **Simulator:** nuScenes scenes in MetaDrive/ScenarioNet; other road users either *replay the log* (follow their recorded path, ignoring our car) or are *reactive* i.e. they adjust speed with [IDM](https://en.wikipedia.org/wiki/Intelligent_driver_model) when our car gets in the way.
 - **Evaluation:** closed-loop test on 146 held-out nuScenes scenes with reactive road users.
 
 ## Results: closed loop on 146 test scenes
@@ -53,7 +53,7 @@ The mini-only model is weak (val minADE₆ ≈ 3.5 m vs 1.24 m on full data). Th
 ## Future work
 
 - The car behind us barely brakes even when we do. Getting the world model to predict a physically plausible reaction to our plan is the main open problem.
-- Only vehicles react to our car; pedestrians and cyclists replay the log [i.e are not reactive (maybe in some place of the readme explain very slightly what reactive and replay is because i think you forgot)]. Stage 2 would add merge anticipation and proper footprint handling.
+- Only vehicles react to our car; pedestrians and cyclists replay the log. Stage 2 would add merge anticipation and proper footprint handling.
 - The WM planner makes 1.4× more stop-go oscillations than CV. Every planner-side fix we tried traded smoothness for safety; it needs temporally consistent predictions to fix properly.
 
 ## Data
