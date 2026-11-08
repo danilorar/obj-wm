@@ -265,6 +265,127 @@ test**; `test_v3.json` stays unused.
   ego); reactive stage 2 (swept ego footprint, merge anticipation); coverage beyond 16 slots; planner hesitation
   (stop-go at junctions, seen in a demo selection on dev100).
 
+## Pre-registration: planner v2.1 switching cost (recorded 2026-11-07, branch planner-v21, before any tuning run)
+**Question.** Does a switching cost in the receding-horizon choice remove the planner's hesitation (stop-go,
+acceleration chattering) without making it less safe or slower?
+
+**Change (one only).** `--w-switch w`: the chosen plan minimises J(p) + w · d(p, p_prev), d = |v_p − v_prev| (m/s,
+target speed) + |offset_p − offset_prev| (m), p_prev = the plan chosen 0.5 s earlier. J, weights, plan grid, tracker
+unchanged. The veto stays absolute (added after the veto; a vetoed plan is never kept). Same code for CV and WM.
+w = 0 is the v2 planner (checked on dev100 against unmodified HEAD, see the closed-loop table).
+
+**Metrics** (`scripts/planner_metrics.py`, ego trace at 2 Hz, per scene, then mean over scenes):
+accel sign flips / min (|a| > 1 m/s², sign opposite to the previous |a| > 1 sample), stop-go events / min
+(v > 2 → v < 0.5 → v > 2 m/s), mean |jerk|. Close-call share = share of steps with distance < 1 m; progress ratio.
+
+**Grid (dev100, `--reactive idm`, never test).** w ∈ {0, 0.5, 1, 2}; CV and WM selected separately.
+**Selection rule (per planner):** the **smallest** w > 0 with, vs w = 0 of the same planner on the same 100 scenes,
+1. mean flips / min ≤ 50% of w = 0 (cut ≥ 50%), and
+2. close-call share: mean paired difference ≤ +1 pp, and
+3. progress ratio: mean paired difference ≥ −0.02.
+If no w qualifies, that planner keeps w = 0. If **neither** planner qualifies: v2.1 is not adopted and **no test run**.
+At-fault counts, stop-go and |jerk| are reported, not used for selection. No other w values are tried.
+
+**Test (only if at least one planner selected w > 0): `sim/scene_lists/test_v3.json`, once.**
+- Deviation from the v3 addendum, disclosed: test_v3 was reserved for a confirmed v3 winner (none exists) and is now used
+  for planner v2.1 instead. It reuses the 146 test150 scenes with new start times t0 = 4 s and 8 s (292 episodes);
+  the traffic is not unseen (test150 drove the full logs). test150 itself is not run again.
+- Runs (`--reactive idm`, `plan --t0 4` and `--t0 8` on the test150 scenarios, v2_d_rerun): CV v2.1 and WM v2.1 (each
+  with its selected w), plus CV and WM at w = 0 (v2) for the chattering comparison. One run each, nothing re-run.
+- **Primary (Amendment 1 endpoints and rule): WM v2.1 vs CV v2.1.** Per scene, the two start times are averaged, then
+  paired WM − CV over 146 scenes: at-fault collisions per episode and close-call share, each with a bootstrap 97.5% CI
+  (10,000 resamples over scenes, seed 0) and a two-sided Wilcoxon p vs 0.025. "WM v2.1 is safer" if either 97.5% CI is
+  entirely below 0 and the progress 95% CI lower bound > −0.02; otherwise "no detectable difference".
+- **Chattering vs v2 (secondary, per planner): v2.1 − v2 (w = 0)** on flips / min, stop-go / min, mean |jerk|,
+  close-call share and progress, same per-scene pairing, bootstrap 95% CI + Wilcoxon. Reported as "v2.1 is smoother" if
+  the flips / min CI lies entirely below 0; the safety and progress differences are reported with their CIs.
+- Not done: no tuning or re-runs on test_v3; numbers seen there change nothing in the planner.
+
+### Amendment A (recorded 2026-11-07, before any variant run): diagnosis first, variants S / H / S+H
+Overrides the grid and selection above where they differ. Written before any run with w > 0 or hysteresis on dev100;
+the plan-change diagnosis of the w = 0 run (baseline, v2 planner) may be seen before the grid starts.
+
+**Diagnosis (baseline only, dev100, reactive idm, CV and WM).** Every planning step whose chosen cell (target speed,
+offset) differs from the previous step's is classified (`planner_metrics.py changes`): (a) cost-driven = the previous
+cell is still allowed but no longer cheapest (with the cost term that saves most); (b) veto-driven = the previous cell
+is now vetoed; (c) other = all plans vetoed (fallback) or a tie. Counts, per-minute rates, speed reversals (opposite
+speed changes ≤ 2 s apart).
+
+**Variants (dev100, reactive idm, each for CV and WM; baseline = w = 0, no hysteresis):**
+- **S** switching cost only: w ∈ {0.5, 1, 2} (`--w-switch`).
+- **H** veto hysteresis only: block at early risk > 0.3 (as now), a blocked cell unblocks only at early risk < 0.2
+  (`--veto-unblock 0.2`). One setting, not tuned.
+- **S+H**: w_S + hysteresis, w_S = the w selected in S; if no w qualifies in S, the S value with the largest flips cut
+  among those passing conditions 2 and 3; if none passes 2 and 3, S+H is not run.
+
+**Qualifies** (per planner, vs its baseline, same rule as above): mean flips / min ≤ 50% of baseline, close-call share
+mean paired difference ≤ +1 pp, progress ratio mean paired difference ≥ −0.02, and (added at Danilo's request before any
+variant run) **at-fault collisions not higher than baseline** (total count over the 100 scenes). In S, the smallest
+qualifying w. (S+H's conditions 2 and 3 above also include the at-fault condition.)
+
+**Selection (per planner):** among the qualifying variants, the one with the largest flips cut; if a single-mechanism
+variant (S or H) is within 10 percentage points of S+H's cut, the single-mechanism variant (between S and H: the larger
+cut). No variant qualifies → that planner keeps the baseline.
+**Test gate (overrides "at least one planner" above):** test_v3 runs **only if the WM planner qualifies**. CV then uses
+its own rule-selected variant (baseline if none qualified). If only CV qualifies, or neither: no test run.
+The selected variants get the single test_v3 run as pre-registered above (v2.1 = the selected variant per planner).
+
+### Amendment B (recorded 2026-11-07, after the w = 0 diagnosis, before any variant run)
+Overrides Amendment A where they differ. The diagnosis (closed-loop table, row "v21 diagnosis") showed plan changes are
+94–98% cost-driven and 1–3% veto-driven; WM swings follow flicker of the risk term (e.g. scene-0263: risk 0 → 0.19,
+= 94 cost, vs a switching cost ≤ 2 × 4 = 8 at w = 2). No variant result has been seen.
+- **S** (switching cost): w ∈ {0.5, 1, 2, 5, 10}.
+- **R** (risk smoothing, `--risk-smooth`): the cost's risk term per plan cell = max(risk_t, raw risk_{t−1} of the same
+  cell (target speed, offset)); one step of memory, one setting. The veto still uses the unsmoothed early risk.
+- **R+S**: R with w_S; w_S = the w selected in S for that planner; if none qualifies in S, the S value with the largest
+  flips cut among those passing the other three conditions; if none, R+S is not run for that planner.
+- **H dropped** (only 1–3% of changes are veto-driven); its code stays, flag off.
+- **Qualifies** (per planner, vs its baseline): flips / min ≤ max(1.1 × expert flips / min, 0.7 × baseline) (the easier
+  of "≤ 1.1 × expert" and "≥ 30% cut"; expert = logged ego on dev100, 8.04 → 8.85), and close-call share mean paired
+  difference ≤ +1 pp, progress mean paired difference ≥ −0.02, at-fault total ≤ baseline.
+  Note, recorded now: the CV baseline (8.62 flips / min) already meets the flips condition, so for CV any S value
+  that keeps the other three conditions qualifies (S picks the smallest, w = 0.5). WM needs ≤ 8.85 (a 27% cut).
+- **Selection** as in Amendment A, over S, R, R+S (largest flips cut; S or R preferred if within 10 pp of R+S's cut).
+  **Test gate unchanged:** test_v3 only if the WM planner qualifies; CV uses its own rule-selected variant.
+- Applied mechanically by `scripts/planner_metrics.py select`. Runs: dev100, reactive idm, 3 in parallel, each in its own
+  output folder with a fresh env per scene; one variant is re-run alone and must be identical to its parallel run
+  (otherwise the grid is not trusted and this is reported).
+
+### Planner v2.1 result (2026-11-08, dev100 only; `outputs/sim/v21/report.md`, `selection.json`)
+**WM does not qualify under Amendment B → v2.1 not adopted for WM; by the test gate, test_v3 is not run** (it stays
+unused). CV qualifies with S w = 0.5, but its baseline already met the flips threshold. Variants that remove enough
+flips (S w 10) do so by holding plans the risk says to leave (WM close-call +3.9 pp, at fault 2 → 6). R+S cuts WM plan
+changes by 27% but flips only by 14.5%: much of the chattering is not plan switching. Open: where the remaining
+flips come from (tracker / plan speed profiles vs plan choice); a longer risk memory or a risk-aware switching rule
+would need a new pre-registration.
+Tracker diagnosis (2026-11-08): flips are plan-choice driven, not tracker-driven (same-plan flips WM 5-12%, CV 9-15%;
+96% of WM flips follow the direction of a target-speed change). The tracker round (T / P variants) was not run.
+**Amendment C result (2026-11-08): U does not qualify for WM** (U2 / U4: 7.7% / 10.2% fewer flips, close-call
++1.05 / +2.73 pp); CV keeps S w 0.5; no test_v3, which stays unused.
+**Round closed as a documented negative result.** WM chattering comes from risk flicker in the WM predictions between
+replanning steps; planner-side fixes (switching cost, hysteresis, risk smoothing, risk-aware switching) either leave
+most flips or trade smoothness for safety. Future work: temporally consistent predictions (consistent modes and
+probabilities across replanning steps). All new planner flags stay in the code, default off (= v2).
+
+### Amendment C (recorded 2026-11-08, after the tracker diagnosis, before any U run): risk-aware switching
+Why: accel flips are plan-choice driven (96% of WM flips follow a target-speed change; same-plan flips 5–12%), and WM
+speed swings follow flicker of the risk term (speed down when a faster plan's risk jumps, back up one step later).
+- **U** (`--speedup-hold N`, default 0 = off = v2): a plan cell (target speed, offset) with a **higher target speed
+  than the previously chosen plan** may be chosen only if its cost risk term (raw, before any smoothing) was < 0.05 at
+  the current planning step **and** at each of the previous N planning steps (N × 0.5 s of history; at the start of an
+  episode only the steps that exist are used). The veto is unchanged and stays absolute (a vetoed plan is never
+  chosen). Speed decreases, the same speed and lateral changes are unrestricted. If the restriction would leave no
+  choosable plan, it is not applied at that step (logged). N ∈ {2, 4} (1 s, 2 s). One threshold (0.05), not tuned.
+- Runs: dev100, reactive idm, CV and WM, U2 and U4 in parallel with a flags-off run (must equal the w = 0 baseline);
+  then U2 re-run alone (must equal its parallel run). No other N or threshold values.
+- **Qualify** (per planner, vs the w = 0 baseline): as Amendment B (flips / min ≤ max(1.1 × expert, 0.7 × baseline)
+  = 8.85; close-call mean paired difference ≤ +1 pp; progress ≥ −0.02; at fault ≤ baseline). Within U: the smallest
+  qualifying N (least intervention, as for w in S).
+- **Selection** over all dev100 variants (S, R, R+S, U) with the Amendment B rule: the qualifying variant with the
+  largest flips cut; a single-mechanism variant (S, R, U) wins over R+S if within 10 pp of its cut.
+- **Test gate unchanged:** test_v3 only if the WM planner qualifies; CV uses its rule-selected variant. Before
+  test_v3 the results are reported and the run waits for Danilo's OK.
+
 ## WOMD / Argoverse 2 feasibility (branch womd-feasibility, 2026-11-07; code `scripts/womd.py` on tag `womd-nogo`)
 - Feasibility: `docs/womd_feasibility.md`. Decisions recorded there; `.venv_womd` built in ~/Desktop/wm.
 - Step 0 (follower-event gate, pre-registered in the doc): nuScenes done (15.4 strong events / h).
